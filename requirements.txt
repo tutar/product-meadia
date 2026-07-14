@@ -11,9 +11,7 @@ python-multipart==0.0.20
 httpx==0.28.1
 authlib==1.4.0
 pydantic-settings==2.7.1
-langchain==0.3.14
-langgraph==0.2.61
-deepagents==0.1.0
+deepagents==0.6.12
 langfuse==2.60.0
 openai==1.58.1
 websockets==14.1
