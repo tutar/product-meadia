@@ -1,4 +1,4 @@
-import time
+import asyncio
 import httpx
 from src.config import settings
 from langfuse.decorators import observe
@@ -27,7 +27,7 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
         video_id = resp.json()["video_id"]
 
         while True:
-            await time.sleep(10)
+            await asyncio.sleep(10)
             result = await client.get(
                 f"{settings.agnes_video_base_url}/agnesapi",
                 params={"video_id": video_id},
