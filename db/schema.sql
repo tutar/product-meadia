@@ -99,3 +99,22 @@ CREATE TRIGGER trg_scripts_updated_at
 CREATE TRIGGER trg_generated_images_updated_at
     BEFORE UPDATE ON generated_images
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- 用户表
+CREATE TABLE users (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email           VARCHAR(320) NOT NULL UNIQUE,
+    hashed_password VARCHAR(128),
+    google_id       VARCHAR(255) UNIQUE,
+    role            VARCHAR(20) NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'operator')),
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_google_id ON users(google_id);
+
+CREATE TRIGGER trg_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
