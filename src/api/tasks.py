@@ -41,6 +41,13 @@ async def create_task(
     db.add(task)
     await db.commit()
     await db.refresh(task)
+
+    from src.tasks.video_tasks import run_video_task
+    celery_result = run_video_task.delay(str(task.id))
+    task.celery_task_id = celery_result.id
+    await db.commit()
+    await db.refresh(task)
+
     return task
 
 
