@@ -1,0 +1,526 @@
+openapi: "3.0.3"
+info:
+  title: 香水短视频生成 API
+  version: "0.1.0"
+  description: 产品短视频 AI 生成应用后端接口
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: 本地开发
+
+paths:
+  /products:
+    post:
+      summary: 创建产品
+      operationId: createProduct
+      tags: [Products]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductCreate"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+    get:
+      summary: 产品列表
+      operationId: listProducts
+      tags: [Products]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: 产品列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Product"
+                  total:
+                    type: integer
+
+  /products/{product_id}:
+    get:
+      summary: 查询产品
+      operationId: getProduct
+      tags: [Products]
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 产品详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+
+  /tasks:
+    post:
+      summary: 创建视频任务
+      operationId: createTask
+      tags: [Tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, type]
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+                type:
+                  $ref: "#/components/schemas/TaskType"
+                image_count:
+                  type: integer
+                  default: 4
+                  description: 宣传视频生图数量（仅 promo 类型有效）
+                viral_url:
+                  type: string
+                  format: uri
+                  description: 爆款视频链接（仅 viral 类型必填）
+                script_overrides:
+                  type: object
+                  description: 可选脚本覆盖参数
+                style_overrides:
+                  type: object
+                  description: 可选的风格覆盖（BGM/转场/字幕等）
+      responses:
+        "201":
+          description: 任务已创建，返回任务 ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoTask"
+
+  /tasks/viral/analyze:
+    post:
+      summary: 爆款视频分析
+      operationId: analyzeViralVideo
+      tags: [Tasks]
+      description: 预分析爆款视频结构，返回分析结果供用户确认，确认后再创建正式任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, video_url]
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+                video_url:
+                  type: string
+                  format: uri
+                  description: 爆款视频链接
+      responses:
+        "200":
+          description: 分析结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViralAnalysis"
+
+  /tasks:
+    get:
+      summary: 任务列表
+      operationId: listTasks
+      tags: [Tasks]
+      parameters:
+        - name: product_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskType"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskStatus"
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: page_size
+          in: query
+          schema: { type: integer, default: 20 }
+      responses:
+        "200":
+          description: 任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VideoTask"
+                  total:
+                    type: integer
+
+  /tasks/{task_id}:
+    get:
+      summary: 任务详情
+      operationId: getTask
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 任务详情（含子步骤状态）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoTask"
+
+  /tasks/{task_id}/script:
+    get:
+      summary: 获取脚本
+      operationId: getScript
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 脚本内容（含生图 prompts）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Script"
+    put:
+      summary: 审核/编辑脚本
+      operationId: updateScript
+      tags: [Tasks]
+      description: 提交编辑后的脚本，approved=true 则进入下一步
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approved]
+              properties:
+                approved:
+                  type: boolean
+                edited_content:
+                  type: string
+                  description: 编辑后的脚本文本
+                image_prompts:
+                  type: array
+                  items:
+                    type: string
+                  description: 编辑后的生图 prompts
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Script"
+
+  /tasks/{task_id}/images:
+    get:
+      summary: 获取任务图片列表
+      operationId: listImages
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 图片列表（含审核状态）
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GeneratedImage"
+
+  /tasks/{task_id}/images/{image_id}:
+    put:
+      summary: 审核图片
+      operationId: reviewImage
+      tags: [Tasks]
+      description: approve=true 通过，approve=false 拒绝（前端随后调用 regenerate）
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: image_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject]
+      responses:
+        "200":
+          description: 已更新
+
+  /tasks/{task_id}/images/{image_id}/regenerate:
+    post:
+      summary: 重新生成图片
+      operationId: regenerateImage
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: image_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "202":
+          description: 重新生成已入队
+
+  /tasks/{task_id}/video:
+    get:
+      summary: 下载视频
+      operationId: downloadVideo
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 视频文件
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: 视频未生成完成
+
+components:
+  schemas:
+    ProductCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: 商品名称
+          example: 月光茉莉 EDP
+        top_note:
+          type: string
+          description: 前调
+        middle_note:
+          type: string
+          description: 中调
+        base_note:
+          type: string
+          description: 后调
+        scenarios:
+          type: array
+          items:
+            type: string
+          description: 适用场景
+          example: ["约会", "通勤", "晚宴"]
+        main_image_url:
+          type: string
+          format: uri
+          description: 商品主图 URL
+
+    Product:
+      allOf:
+        - $ref: "#/components/schemas/ProductCreate"
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+
+    TaskType:
+      type: string
+      enum: [promo, viral, personify]
+
+    TaskStatus:
+      type: string
+      enum:
+        - pending
+        - scripting
+        - script_review
+        - imaging
+        - image_review
+        - character_review
+        - video_gen
+        - compositing
+        - done
+        - failed
+
+    VideoTask:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/TaskType"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        current_step:
+          type: string
+          description: 当前步骤描述
+        image_count:
+          type: integer
+          description: 宣传视频总生图数
+        approved_count:
+          type: integer
+          description: 已审核通过数
+        error_message:
+          type: string
+        result_video_url:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Script:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+          description: Agent 生成的原始脚本
+        edited_content:
+          type: string
+          description: 用户编辑后的脚本
+        image_prompts:
+          type: array
+          items:
+            type: string
+          description: 生图 prompt 列表
+        voiceover_text:
+          type: string
+          description: 配音文案
+        status:
+          type: string
+          enum: [pending_review, approved]
+
+    GeneratedImage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        prompt:
+          type: string
+        image_url:
+          type: string
+          format: uri
+        sort_order:
+          type: integer
+        status:
+          type: string
+          enum: [pending_review, approved, rejected]
+
+    ViralAnalysis:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          format: uuid
+        source_url:
+          type: string
+          format: uri
+        original_script:
+          type: string
+          description: 转写后的原视频脚本
+        script_structure:
+          type: object
+          description: |
+            脚本结构分析:
+            { hook, pain_point, solution, product_showcase, cta }
+        shot_list:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              description:
+                type: string
+              duration_seconds:
+                type: number
+              shot_type:
+                type: string
+          description: 分镜列表
+        style_params:
+          type: object
+          properties:
+            transition:
+              type: string
+            bgm_style:
+              type: string
+            subtitle_position:
+              type: string
+            subtitle_style:
+              type: string
