@@ -11,8 +11,13 @@ CREATE TABLE products (
     base_note       TEXT,
     scenarios       JSONB DEFAULT '[]',
     main_image_url  TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TRIGGER trg_products_updated_at
+    BEFORE UPDATE ON products
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 视频任务表
 CREATE TABLE video_tasks (
@@ -76,8 +81,13 @@ CREATE TABLE viral_analyses (
     script_structure JSONB,
     shot_list       JSONB DEFAULT '[]',
     style_params    JSONB,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TRIGGER trg_viral_analyses_updated_at
+    BEFORE UPDATE ON viral_analyses
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- 自动更新 updated_at
 CREATE OR REPLACE FUNCTION update_updated_at()
