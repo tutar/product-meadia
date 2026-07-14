@@ -12,8 +12,8 @@ def test_personify_graph_structure():
     assert "composite" in nodes
 
 
-def test_personify_graph_has_checkpointer():
-    assert personify_graph.checkpointer is not None
+def test_personify_graph_has_no_checkpointer_at_module_level():
+    assert personify_graph.checkpointer is None or personify_graph.checkpointer is False
 
 
 def test_personify_graph_interrupt_count():

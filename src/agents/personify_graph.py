@@ -1,8 +1,6 @@
 import json
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.postgres import PostgresSaver
 from src.agents.state import VideoAgentState
-from src.config import settings
 from src.tools.image_gen import generate_image
 from src.tools.tts import generate_tts
 from src.tools.lipsync import run_lipsync
@@ -129,7 +127,7 @@ def build_personify_graph() -> StateGraph:
     graph.add_edge("composite", END)
 
     return graph.compile(
-        checkpointer=PostgresSaver(conn=settings.database_url),
+
         interrupt_before=["wait_character_review", "wait_script_review"],
     )
 

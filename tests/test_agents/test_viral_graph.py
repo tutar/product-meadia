@@ -14,8 +14,8 @@ def test_viral_graph_structure():
     assert "composite" in nodes
 
 
-def test_viral_graph_has_checkpointer():
-    assert viral_graph.checkpointer is not None
+def test_viral_graph_has_no_checkpointer_at_module_level():
+    assert viral_graph.checkpointer is None or viral_graph.checkpointer is False
 
 
 def test_viral_graph_interrupt_count():

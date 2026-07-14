@@ -16,10 +16,9 @@ async def test_promo_graph_structure():
     assert "composite_video" in nodes
 
 
-@pytest.mark.asyncio
-async def test_promo_graph_has_checkpointer():
-    """Verify checkpointer is configured for HITL."""
-    assert promo_graph.checkpointer is not None
+def test_promo_graph_has_no_checkpointer_at_module_level():
+    """Module-level graph has no checkpointer; Celery injects PostgresSaver at runtime."""
+    assert promo_graph.checkpointer is None or promo_graph.checkpointer is False
 
 
 @pytest.mark.asyncio
@@ -30,7 +29,6 @@ async def test_promo_graph_interrupt_before():
     assert promo_graph.interrupt_before_nodes is not None
 
 
-@pytest.mark.skip(reason="Requires PostgreSQL for PostgresSaver checkpoint")
 @pytest.mark.asyncio
 async def test_promo_graph_single_step_generate_script():
     """Test a single step: script generation with mocked LLM."""

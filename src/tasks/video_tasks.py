@@ -11,25 +11,39 @@ from src.models.generated_image import GeneratedImage
 from src.models.viral_analysis import ViralAnalysis
 from src.agents.state import VideoAgentState
 from src.ws.progress import progress_manager
+from src.agents.checkpoint import get_checkpointer
 
 engine = create_async_engine(settings.database_url)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-GRAPHS = {}
-
 
 def _get_graph(task_type: str):
-    if task_type not in GRAPHS:
-        if task_type == "promo":
-            from src.agents.promo_graph import promo_graph
-            GRAPHS["promo"] = promo_graph
-        elif task_type == "viral":
-            from src.agents.viral_graph import viral_graph
-            GRAPHS["viral"] = viral_graph
-        elif task_type == "personify":
-            from src.agents.personify_graph import personify_graph
-            GRAPHS["personify"] = personify_graph
-    return GRAPHS[task_type]
+    """Get the pre-compiled graph structure (checkpointer-free, for inspection only)."""
+    if task_type == "promo":
+        from src.agents.promo_graph import promo_graph
+        return promo_graph
+    elif task_type == "viral":
+        from src.agents.viral_graph import viral_graph
+        return viral_graph
+    elif task_type == "personify":
+        from src.agents.personify_graph import personify_graph
+        return personify_graph
+    raise ValueError(f"Unknown task type: {task_type}")
+
+
+async def _make_runnable_graph(task_type: str):
+    """Recompile the graph with PostgresSaver checkpointer for actual execution."""
+    from langgraph.graph import StateGraph, END
+    from src.agents.promo_graph import build_promo_graph
+    from src.agents.viral_graph import build_viral_graph
+    from src.agents.personify_graph import build_personify_graph
+
+    builders = {"promo": build_promo_graph, "viral": build_viral_graph, "personify": build_personify_graph}
+    checkpointer = await get_checkpointer()
+    return builders[task_type]().compile(
+        checkpointer=checkpointer,
+        interrupt_before=_get_graph(task_type).interrupt_before_nodes,
+    )
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
@@ -75,7 +89,7 @@ async def _async_run(task_id: str, celery_task_id: str):
             task.celery_task_id = celery_task_id
             await db.commit()
 
-        graph = _get_graph(task.type)
+        graph = await _make_runnable_graph(task.type)
         config = {"configurable": {"thread_id": task_id}}
 
         # Try resume from checkpoint first; fall back to fresh start
