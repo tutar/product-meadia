@@ -1,7 +1,7 @@
 import json
 from openai import AsyncOpenAI
 from src.config import settings
-from langfuse.decorators import observe
+from langfuse import observe
 from src.tools.retry import retry_async
 
 client = AsyncOpenAI(base_url=settings.litellm_base_url, api_key=settings.litellm_api_key)

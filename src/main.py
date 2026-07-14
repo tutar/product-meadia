@@ -1,24 +1,22 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from langfuse.decorators import langfuse_context
 from src.config import settings
 from src.auth.routes import router as auth_router
 from src.api.products import router as products_router
 from src.api.tasks import router as tasks_router
 from src.ws.progress import progress_manager
 
+# Langfuse v4 reads from env vars automatically
+os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.langfuse_public_key)
+os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.langfuse_secret_key)
+os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_host)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    langfuse_context.configure(
-        public_key=settings.langfuse_public_key,
-        secret_key=settings.langfuse_secret_key,
-        host=settings.langfuse_host,
-        enabled=(settings.langfuse_secret_key != ""),
-    )
     yield
-    langfuse_context.flush()
 
 app = FastAPI(title="Perfume Video API", version="0.1.0", lifespan=lifespan)
 

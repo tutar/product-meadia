@@ -1,7 +1,7 @@
 import asyncio
 import httpx
 from src.config import settings
-from langfuse.decorators import observe
+from langfuse import observe
 
 HEADERS = {"Authorization": f"Bearer {settings.agnes_video_api_key}"}
 

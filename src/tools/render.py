@@ -1,7 +1,7 @@
 import asyncio
 import tempfile
 import os
-from langfuse.decorators import observe
+from langfuse import observe
 
 
 @observe(name="render_hyperframes")

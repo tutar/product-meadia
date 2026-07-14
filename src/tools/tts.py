@@ -1,6 +1,6 @@
 import httpx
 from src.config import settings
-from langfuse.decorators import observe
+from langfuse import observe
 from src.tools.retry import retry_async
 
 
