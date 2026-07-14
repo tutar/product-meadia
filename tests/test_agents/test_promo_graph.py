@@ -30,6 +30,7 @@ async def test_promo_graph_interrupt_before():
     assert promo_graph.interrupt_before_nodes is not None
 
 
+@pytest.mark.skip(reason="Requires PostgreSQL for PostgresSaver checkpoint")
 @pytest.mark.asyncio
 async def test_promo_graph_single_step_generate_script():
     """Test a single step: script generation with mocked LLM."""

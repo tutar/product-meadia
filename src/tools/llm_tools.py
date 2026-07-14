@@ -2,10 +2,12 @@ import json
 from openai import AsyncOpenAI
 from src.config import settings
 from langfuse.decorators import observe
+from src.tools.retry import retry_async
 
 client = AsyncOpenAI(base_url=settings.litellm_base_url, api_key=settings.litellm_api_key)
 
 
+@retry_async(max_attempts=3)
 @observe(name="llm_chat")
 async def llm_chat(model: str, system_prompt: str, user_message: str, temperature: float = 0.7) -> str:
     resp = await client.chat.completions.create(

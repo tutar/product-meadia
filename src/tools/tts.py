@@ -1,8 +1,10 @@
 import httpx
 from src.config import settings
 from langfuse.decorators import observe
+from src.tools.retry import retry_async
 
 
+@retry_async(max_attempts=3)
 @observe(name="generate_tts")
 async def generate_tts(text: str) -> dict:
     async with httpx.AsyncClient(timeout=120) as client:

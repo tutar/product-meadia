@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from langfuse.decorators import langfuse_context
+from src.config import settings
 from src.auth.routes import router as auth_router
 from src.api.products import router as products_router
 from src.api.tasks import router as tasks_router
@@ -9,13 +11,20 @@ from src.ws.progress import progress_manager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    langfuse_context.configure(
+        public_key=settings.langfuse_public_key,
+        secret_key=settings.langfuse_secret_key,
+        host=settings.langfuse_host,
+        enabled=(settings.langfuse_secret_key != ""),
+    )
     yield
+    langfuse_context.flush()
 
 app = FastAPI(title="Perfume Video API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

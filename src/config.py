@@ -1,7 +1,8 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
     app_env: str = "development"
     secret_key: str = "change-me"
     database_url: str = "postgresql+asyncpg://agent:agent123@localhost:5432/perfume_video"
@@ -27,9 +28,6 @@ class Settings(BaseSettings):
 
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
-
-    class Config:
-        env_file = ".env"
 
 
 settings = Settings()

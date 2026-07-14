@@ -1,7 +1,8 @@
 import json
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from src.agents.state import VideoAgentState
+from src.config import settings
 from src.tools.image_gen import generate_image
 from src.tools.video_gen import generate_video
 from src.tools.tts import generate_tts
@@ -132,7 +133,7 @@ def build_viral_graph() -> StateGraph:
     graph.add_edge("composite", END)
 
     return graph.compile(
-        checkpointer=MemorySaver(),
+        checkpointer=PostgresSaver(conn=settings.database_url),
         interrupt_before=["wait_viral_confirm", "wait_script_review", "wait_image_review"],
     )
 

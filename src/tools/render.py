@@ -1,11 +1,11 @@
-import subprocess
+import asyncio
 import tempfile
 import os
 from langfuse.decorators import observe
 
 
 @observe(name="render_hyperframes")
-async def render_hyperframes(html_content: str, asset_dir: str) -> str:
+async def render_hyperframes(html_content: str, asset_dir: str = "/tmp") -> str:
     workdir = tempfile.mkdtemp(prefix="hyperframes_")
     html_path = os.path.join(workdir, "index.html")
     output_path = os.path.join(workdir, "output.mp4")
@@ -13,10 +13,14 @@ async def render_hyperframes(html_content: str, asset_dir: str) -> str:
     with open(html_path, "w") as f:
         f.write(html_content)
 
-    result = subprocess.run(
-        ["npx", "hyperframes", "render", html_path, "--output", output_path],
-        capture_output=True, text=True, timeout=300, cwd=workdir,
+    proc = await asyncio.create_subprocess_exec(
+        "npx", "hyperframes", "render", html_path, "--output", output_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=workdir,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"HyperFrames render failed: {result.stderr}")
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"HyperFrames render failed: {stderr.decode()}")
     return output_path

@@ -122,8 +122,14 @@ async def update_script(
         task_result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
         task = task_result.scalar_one()
         task.status = "imaging"
-    await db.commit()
-    await db.refresh(script)
+        await db.commit()
+        await db.refresh(script)
+        # Resume the graph
+        from src.tasks.video_tasks import run_video_task
+        run_video_task.delay(str(task_id))
+    else:
+        await db.commit()
+        await db.refresh(script)
     return script
 
 
@@ -168,6 +174,9 @@ async def review_image(
         if all_approved.scalar() == 0:
             task.status = "video_gen"
             await db.commit()
+            # Resume the graph
+            from src.tasks.video_tasks import run_video_task
+            run_video_task.delay(str(task_id))
     return {"status": "ok"}
 
 

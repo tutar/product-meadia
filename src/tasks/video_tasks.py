@@ -1,5 +1,5 @@
 import asyncio
-from uuid import UUID
+import json
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from src.config import settings
@@ -34,82 +34,132 @@ def _get_graph(task_type: str):
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
 def run_video_task(self, task_id: str):
-    return asyncio.get_event_loop().run_until_complete(
-        _async_run(task_id, self.request.id)
-    )
+    return asyncio.run(_async_run(task_id, self.request.id))
 
 
 async def _async_run(task_id: str, celery_task_id: str):
+    graph = None
+    try:
+        async with SessionLocal() as db:
+            result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
+            task = result.scalar_one()
+            product_result = await db.execute(select(Product).where(Product.id == task.product_id))
+            product = product_result.scalar_one()
+
+            initial_state: VideoAgentState = {
+                "task_id": str(task.id),
+                "product_id": str(product.id),
+                "product_info": {
+                    "name": product.name, "top_note": product.top_note,
+                    "middle_note": product.middle_note, "base_note": product.base_note,
+                    "scenarios": product.scenarios, "main_image_url": product.main_image_url,
+                },
+                "task_type": task.type,
+                "image_count": task.image_count,
+                "viral_url": "",
+                "script_content": "", "edited_script_content": "", "image_prompts": [],
+                "voiceover_text": "", "generated_images": [], "video_clips": [],
+                "tts_audio_url": "", "tts_words": [], "lipsync_video_url": "",
+                "character_image_url": "", "viral_analysis": {},
+                "hyperframes_html": "", "final_video_path": "",
+                "review_approved": False, "messages": [],
+            }
+
+            if task.type == "viral":
+                v_result = await db.execute(select(ViralAnalysis).where(ViralAnalysis.task_id == task.id))
+                va = v_result.scalar_one_or_none()
+                if va:
+                    initial_state["viral_url"] = va.source_url
+
+            task.status = "scripting"
+            task.celery_task_id = celery_task_id
+            await db.commit()
+
+        graph = _get_graph(task.type)
+        config = {"configurable": {"thread_id": task_id}}
+
+        # Try resume from checkpoint first; fall back to fresh start
+        try:
+            stream = graph.astream(None, config)
+            await stream.__anext__()  # will raise if no checkpoint
+            stream = graph.astream(None, config)  # restart the stream properly
+        except Exception:
+            stream = graph.astream(initial_state, config)
+
+        async for event in stream:
+            await progress_manager.send_progress(task_id, {"event": str(list(event.keys()))})
+            for node_name, node_output in event.items():
+                if node_output is None:
+                    continue
+
+                # Persist agent outputs to DB
+                await _persist_node_output(task_id, node_name, node_output)
+
+                if node_name.startswith("wait_"):
+                    async with SessionLocal() as db:
+                        t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                        t.status = node_name
+                        await db.commit()
+                    await progress_manager.send_progress(task_id, {"status": node_name})
+                    return  # Graph hit interrupt — task ends, will be resumed by API call
+
+        # Graph completed without hitting an interrupt
+        async with SessionLocal() as db:
+            t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            t.status = "done"
+            await db.commit()
+        await progress_manager.send_progress(task_id, {"status": "done"})
+
+    except Exception as e:
+        async with SessionLocal() as db:
+            t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            t.status = "failed"
+            t.error_message = f"{type(e).__name__}: {e}"
+            await db.commit()
+        await progress_manager.send_progress(task_id, {"status": "failed", "error": str(e)})
+        raise
+
+
+async def _persist_node_output(task_id: str, node_name: str, output: dict):
+    """Persist agent node outputs to their corresponding DB tables."""
     async with SessionLocal() as db:
-        result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
-        task = result.scalar_one()
-        product_result = await db.execute(
-            select(Product).where(Product.id == task.product_id)
-        )
-        product = product_result.scalar_one()
+        if node_name == "generate_script" or node_name == "generate_rewritten_script":
+            stmt = select(Script).where(Script.task_id == task_id)
+            result = await db.execute(stmt)
+            script = result.scalar_one_or_none()
+            if not script:
+                script = Script(task_id=task_id, content="", status="pending_review")
+                db.add(script)
+            script.content = output.get("script_content", script.content)
+            script.voiceover_text = output.get("voiceover_text", script.voiceover_text)
+            if output.get("image_prompts"):
+                script.image_prompts = output["image_prompts"]
+            await db.commit()
 
-        initial_state: VideoAgentState = {
-            "task_id": str(task.id),
-            "product_id": str(product.id),
-            "product_info": {
-                "name": product.name,
-                "top_note": product.top_note,
-                "middle_note": product.middle_note,
-                "base_note": product.base_note,
-                "scenarios": product.scenarios,
-                "main_image_url": product.main_image_url,
-            },
-            "task_type": task.type,
-            "image_count": task.image_count,
-            "viral_url": "",
-            "script_content": "",
-            "edited_script_content": "",
-            "image_prompts": [],
-            "voiceover_text": "",
-            "generated_images": [],
-            "video_clips": [],
-            "tts_audio_url": "",
-            "tts_words": [],
-            "lipsync_video_url": "",
-            "character_image_url": "",
-            "viral_analysis": {},
-            "hyperframes_html": "",
-            "final_video_path": "",
-            "review_approved": False,
-            "messages": [],
-        }
+        elif node_name == "generate_images":
+            # Delete old images, insert new ones
+            await db.execute(select(GeneratedImage).where(GeneratedImage.task_id == task_id))  # touch for delete
+            existing = (await db.execute(select(GeneratedImage).where(GeneratedImage.task_id == task_id))).scalars().all()
+            for img in existing:
+                await db.delete(img)
+            for img_data in output.get("generated_images", []):
+                gi = GeneratedImage(
+                    task_id=task_id,
+                    prompt="",
+                    image_url=img_data.get("image_url", ""),
+                    sort_order=img_data.get("sort_order", 0),
+                    status="pending_review",
+                )
+                db.add(gi)
+            await db.commit()
 
-        if task.type == "viral":
-            v_result = await db.execute(
-                select(ViralAnalysis).where(ViralAnalysis.task_id == task.id)
-            )
-            va = v_result.scalar_one_or_none()
-            if va:
-                initial_state["viral_url"] = va.source_url
-
-        task.status = "scripting"
-        task.celery_task_id = celery_task_id
-        await db.commit()
-
-    graph = _get_graph(task.type)
-    config = {"configurable": {"thread_id": task_id}}
-
-    async for event in graph.astream(initial_state, config):
-        await progress_manager.send_progress(task_id, {"event": str(event)})
-        for node_name, node_output in event.items():
-            if node_name.startswith("wait_"):
-                async with SessionLocal() as db:
-                    t = (
-                        await db.execute(
-                            select(VideoTask).where(VideoTask.id == task_id)
-                        )
-                    ).scalar_one()
-                    t.status = node_name
-                    await db.commit()
-
-    async with SessionLocal() as db:
-        t = (
-            await db.execute(select(VideoTask).where(VideoTask.id == task_id))
-        ).scalar_one()
-        t.status = "done"
-        await db.commit()
+        elif node_name == "generate_character":
+            # Store character image as a generated image entry
+            if output.get("character_image_url"):
+                gi = GeneratedImage(
+                    task_id=task_id, prompt="character",
+                    image_url=output["character_image_url"],
+                    sort_order=0, status="pending_review",
+                )
+                db.add(gi)
+                await db.commit()

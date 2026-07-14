@@ -1,11 +1,12 @@
 import json
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
 from src.tools.video_gen import generate_video
 from src.tools.tts import generate_tts
 from src.tools.render import render_hyperframes
+from src.config import settings
 from src.tools.llm_tools import llm_chat
 
 SCRIPT_SYSTEM = """You are a perfume video scriptwriter. Given a perfume product, write:
@@ -124,7 +125,7 @@ def build_promo_graph() -> StateGraph:
     graph.add_edge("composite_video", END)
 
     return graph.compile(
-        checkpointer=MemorySaver(),
+        checkpointer=PostgresSaver(conn=settings.database_url),
         interrupt_before=["wait_script_review", "wait_image_review"],
     )
 
