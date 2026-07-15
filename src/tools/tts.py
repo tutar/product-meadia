@@ -1,20 +1,33 @@
-import httpx
+import tempfile
+import os
+from openai import AsyncOpenAI
 from src.config import settings
 from langfuse import observe
 from src.tools.retry import retry_async
+
+client = AsyncOpenAI(base_url=settings.voxcpm2_base_url, api_key="not-needed")
 
 
 @retry_async(max_attempts=3)
 @observe(name="generate_tts")
 async def generate_tts(text: str) -> dict:
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            f"{settings.voxcpm2_base_url}/v1/tts",
-            json={"text": text, "return_timestamps": True},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return {
-            "audio_url": data["audio_url"],
-            "words": data.get("words", []),
-        }
+    """Generate TTS audio via VoxCPM2 OpenAI-compatible /v1/audio/speech.
+
+    Returns dict with audio_url (local file path or RustFS URL) and words (empty
+    list — VoxCPM2 does not provide word-level timestamps; use FunASR
+    post-processing when needed).
+    """
+    response = await client.audio.speech.create(
+        model="openbmb/VoxCPM2",
+        input=text,
+        voice="default",
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        f.write(response.content)
+        audio_path = f.name
+
+    return {
+        "audio_url": audio_path,
+        "words": [],
+    }

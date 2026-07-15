@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     agnes_video_api_key: str = ""
     agnes_video_base_url: str = "https://apihub.agnes-ai.com"
 
-    voxcpm2_base_url: str = "http://localhost:8080"
+    voxcpm2_base_url: str = "http://localhost:8022/v1"
     latentsync_base_url: str = "http://localhost:8090"
     rustfs_base_url: str = "http://localhost:8001"
     funasr_base_url: str = "http://localhost:8021/v1"

@@ -4,32 +4,26 @@ from src.tools.tts import generate_tts
 
 
 @pytest.mark.asyncio
-async def test_generate_tts_returns_audio_url_and_words():
-    mock_resp = MagicMock()
-    mock_resp.raise_for_status = MagicMock()
-    mock_resp.json.return_value = {
-        "audio_url": "https://audio.example.com/voice.wav",
-        "words": [{"word": "Hello", "start": 0.0, "end": 0.5}, {"word": "World", "start": 0.5, "end": 1.0}],
-    }
+async def test_generate_tts_returns_audio_path():
+    mock_response = MagicMock()
+    mock_response.content = b"RIFF...WAV data..."
 
-    post_mock = AsyncMock(return_value=mock_resp)
-    with patch("src.tools.tts.httpx.AsyncClient") as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = post_mock
+    mock_create = AsyncMock(return_value=mock_response)
+    with patch("src.tools.tts.client.audio.speech.create", mock_create):
         result = await generate_tts("Hello World")
-        assert result["audio_url"] == "https://audio.example.com/voice.wav"
-        assert len(result["words"]) == 2
-        assert result["words"][0]["word"] == "Hello"
+        assert result["audio_url"].endswith(".wav")
+        assert result["words"] == []
+        mock_create.assert_called_once_with(
+            model="openbmb/VoxCPM2",
+            input="Hello World",
+            voice="default",
+        )
 
 
 @pytest.mark.asyncio
-async def test_generate_tts_no_timestamps():
-    mock_resp = MagicMock()
-    mock_resp.raise_for_status = MagicMock()
-    mock_resp.json.return_value = {"audio_url": "https://audio.example.com/voice2.wav"}
-
-    post_mock = AsyncMock(return_value=mock_resp)
-    with patch("src.tools.tts.httpx.AsyncClient") as mock_client:
-        mock_client.return_value.__aenter__.return_value.post = post_mock
-        result = await generate_tts("Test")
-        assert result["audio_url"] == "https://audio.example.com/voice2.wav"
-        assert result["words"] == []
+async def test_generate_tts_retries_then_raises():
+    mock_create = AsyncMock(side_effect=Exception("TTS down"))
+    with patch("src.tools.tts.client.audio.speech.create", mock_create):
+        with pytest.raises(Exception):
+            await generate_tts("test")
+        assert mock_create.call_count == 3
