@@ -87,7 +87,38 @@ async def _async_run(task_id: str, celery_task_id: str):
                 if va:
                     initial_state["viral_url"] = va.source_url
 
-            task.status = "scripting"
+            # Restore previously-completed state on retry
+            script_result = await db.execute(select(Script).where(Script.task_id == task_id))
+            db_script = script_result.scalar_one_or_none()
+            if db_script:
+                initial_state["script_content"] = db_script.content or ""
+                initial_state["edited_script_content"] = db_script.edited_content or ""
+                initial_state["image_prompts"] = db_script.image_prompts or []
+                initial_state["voiceover_text"] = db_script.voiceover_text or ""
+
+            img_result = await db.execute(
+                select(GeneratedImage).where(GeneratedImage.task_id == task_id).order_by(GeneratedImage.sort_order)
+            )
+            db_images = img_result.scalars().all()
+            if db_images:
+                initial_state["generated_images"] = [
+                    {"sort_order": img.sort_order, "image_url": img.image_url, "status": img.status}
+                    for img in db_images
+                ]
+
+            # Determine starting step
+            if task.status == "failed":
+                if db_images and any(img.status == "approved" for img in db_images):
+                    task.status = "image_review"  # Re-review or generate remaining
+                elif db_script and db_script.status == "approved":
+                    task.status = "imaging"
+                elif db_script:
+                    task.status = "script_review"
+                else:
+                    task.status = "scripting"
+            elif task.status == "pending":
+                task.status = "scripting"
+
             task.celery_task_id = celery_task_id
             await db.commit()
 

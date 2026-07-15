@@ -34,6 +34,9 @@ def build_promo_graph(checkpointer=None) -> StateGraph:
     graph = StateGraph(VideoAgentState)
 
     async def generate_script(state: VideoAgentState) -> dict:
+        # Skip if script already loaded from DB on retry
+        if state.get("script_content") and state.get("image_prompts"):
+            return {}
         info = state["product_info"]
         prompt = (
             f"Product: {info['name']}\\n"
@@ -56,10 +59,16 @@ def build_promo_graph(checkpointer=None) -> StateGraph:
 
     async def generate_images(state: VideoAgentState) -> dict:
         prompts = state.get("image_prompts", [])
+        existing = state.get("generated_images", [])
         images = []
         for i, p in enumerate(prompts):
-            url = await generate_image(p)
-            images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
+            # Reuse existing approved/pending images on retry
+            old = existing[i] if i < len(existing) else None
+            if old and old.get("image_url") and old.get("status") in ("approved", "pending_review"):
+                images.append(old)
+            else:
+                url = await generate_image(p)
+                images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
         return {"generated_images": images}
 
     async def wait_image_review(state: VideoAgentState) -> dict:

@@ -212,10 +212,25 @@ async def resume_task(
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status == "done":
         raise HTTPException(status_code=400, detail="Task already done")
-    # Allow retry from failed — reset status
+    # Allow retry from failed — resume from last completed step
     if task.status == "failed":
-        task.status = "pending"
         task.error_message = None
+        # Check what's already done
+        script_result = await db.execute(select(Script).where(Script.task_id == task_id))
+        script = script_result.scalar_one_or_none()
+        img_result = await db.execute(select(GeneratedImage).where(GeneratedImage.task_id == task_id))
+        images = img_result.scalars().all()
+
+        if images and any(img.status == "approved" for img in images):
+            task.status = "image_review"  # Re-review what we have
+        elif images and all(img.status in ("pending_review", "rejected") for img in images):
+            task.status = "image_review"  # Re-review existing images
+        elif script and script.status == "approved":
+            task.status = "imaging"  # Script done, go to images
+        elif script:
+            task.status = "script_review"  # Re-review script
+        else:
+            task.status = "scripting"  # Start fresh
         await db.commit()
 
     # Run graph in background via asyncio task
