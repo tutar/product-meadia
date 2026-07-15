@@ -29,6 +29,7 @@ class TokenRequest(BaseModel):
     email: str | None = None
     password: str | None = None
     google_code: str | None = None
+    redirect_uri: str | None = None
 
 
 class RefreshRequest(BaseModel):

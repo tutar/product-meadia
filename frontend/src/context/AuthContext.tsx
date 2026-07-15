@@ -10,6 +10,7 @@ interface User {
 interface AuthCtx {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (code: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -20,10 +21,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
 
   const login = async (email: string, password: string) => {
+    const { data } = await api.post("/auth/token", { grant_type: "password", email, password });
+    localStorage.setItem("access_token", data.access_token);
+    localStorage.setItem("refresh_token", data.refresh_token);
+    const me = await api.get("/auth/me");
+    setUser(me.data);
+  };
+
+  const loginWithGoogle = async (code: string) => {
     const { data } = await api.post("/auth/token", {
-      grant_type: "password",
-      email,
-      password,
+      grant_type: "google_oauth",
+      google_code: code,
+      redirect_uri: window.location.origin + "/auth/google/callback",
     });
     localStorage.setItem("access_token", data.access_token);
     localStorage.setItem("refresh_token", data.refresh_token);
@@ -42,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, login, loginWithGoogle, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

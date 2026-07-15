@@ -49,7 +49,7 @@ async def token(body: TokenRequest, db: AsyncSession = Depends(get_async_session
                 "code": body.google_code,
                 "client_id": settings.google_client_id,
                 "client_secret": settings.google_client_secret,
-                "redirect_uri": "postmessage",
+                "redirect_uri": body.redirect_uri or "postmessage",
                 "grant_type": "authorization_code",
             })
             if token_resp.status_code != 200:
