@@ -41,7 +41,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </body></html>"""
 
 
-def build_personify_graph(checkpointer=None) -> StateGraph:
+def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
+    if interrupt_before is None:
+        interrupt_before = ["wait_character_review", "wait_script_review"]
     graph = StateGraph(VideoAgentState)
 
     async def generate_character(state: VideoAgentState) -> dict:
@@ -128,8 +130,7 @@ def build_personify_graph(checkpointer=None) -> StateGraph:
 
     return graph.compile(
         checkpointer=checkpointer,
-
-        interrupt_before=["wait_character_review", "wait_script_review"],
+        interrupt_before=interrupt_before,
     )
 
 

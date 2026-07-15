@@ -30,7 +30,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </body></html>"""
 
 
-def build_promo_graph(checkpointer=None) -> StateGraph:
+def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
+    if interrupt_before is None:
+        interrupt_before = ["wait_script_review", "wait_image_review"]
     graph = StateGraph(VideoAgentState)
 
     async def generate_script(state: VideoAgentState) -> dict:
@@ -138,7 +140,7 @@ def build_promo_graph(checkpointer=None) -> StateGraph:
 
     return graph.compile(
         checkpointer=checkpointer,
-        interrupt_before=["wait_script_review", "wait_image_review"],
+        interrupt_before=interrupt_before,
     )
 
 

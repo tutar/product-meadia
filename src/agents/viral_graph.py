@@ -30,7 +30,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </body></html>"""
 
 
-def build_viral_graph(checkpointer=None) -> StateGraph:
+def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
+    if interrupt_before is None:
+        interrupt_before = ["wait_viral_confirm", "wait_script_review", "wait_image_review"]
     graph = StateGraph(VideoAgentState)
 
     async def analyze_source(state: VideoAgentState) -> dict:
@@ -132,8 +134,7 @@ def build_viral_graph(checkpointer=None) -> StateGraph:
 
     return graph.compile(
         checkpointer=checkpointer,
-
-        interrupt_before=["wait_viral_confirm", "wait_script_review", "wait_image_review"],
+        interrupt_before=interrupt_before,
     )
 
 

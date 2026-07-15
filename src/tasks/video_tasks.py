@@ -31,20 +31,24 @@ def _get_graph(task_type: str):
     raise ValueError(f"Unknown task type: {task_type}")
 
 
-async def _make_runnable_graph(task_type: str):
+async def _make_runnable_graph(task_type: str, skip_interrupts: set[str] | None = None):
     """Recompile the graph with MemorySaver checkpointer for actual execution."""
     from langgraph.checkpoint.memory import MemorySaver
     checkpointer = MemorySaver()
+    skip = skip_interrupts or set()
 
     if task_type == "promo":
         from src.agents.promo_graph import build_promo_graph
-        return build_promo_graph(checkpointer=checkpointer)
+        interrupts = ["wait_script_review", "wait_image_review"]
+        return build_promo_graph(checkpointer=checkpointer, interrupt_before=[i for i in interrupts if i not in skip])
     elif task_type == "viral":
         from src.agents.viral_graph import build_viral_graph
-        return build_viral_graph(checkpointer=checkpointer)
+        interrupts = ["wait_viral_confirm", "wait_script_review", "wait_image_review"]
+        return build_viral_graph(checkpointer=checkpointer, interrupt_before=[i for i in interrupts if i not in skip])
     elif task_type == "personify":
         from src.agents.personify_graph import build_personify_graph
-        return build_personify_graph(checkpointer=checkpointer)
+        interrupts = ["wait_character_review", "wait_script_review"]
+        return build_personify_graph(checkpointer=checkpointer, interrupt_before=[i for i in interrupts if i not in skip])
     raise ValueError(f"Unknown task type: {task_type}")
 
 
@@ -129,7 +133,14 @@ async def _async_run(task_id: str, celery_task_id: str):
             task.celery_task_id = celery_task_id
             await db.commit()
 
-        graph = await _make_runnable_graph(task.type)
+        # Skip interrupts for steps already completed
+        skip = set()
+        if initial_state.get("script_approved"):
+            skip.add("wait_script_review")
+        if initial_state.get("images_approved"):
+            skip.add("wait_image_review")
+
+        graph = await _make_runnable_graph(task.type, skip)
         config = {"configurable": {"thread_id": task_id}}
 
         # Try resume from checkpoint first; fall back to fresh start
