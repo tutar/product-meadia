@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = "sk-lf-default"
     langfuse_host: str = "http://localhost:3060"
 
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 120
     refresh_token_expire_days: int = 7
 
 

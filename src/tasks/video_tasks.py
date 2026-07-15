@@ -32,8 +32,9 @@ def _get_graph(task_type: str):
 
 
 async def _make_runnable_graph(task_type: str):
-    """Recompile the graph with PostgresSaver checkpointer for actual execution."""
-    checkpointer = await get_checkpointer()
+    """Recompile the graph with MemorySaver checkpointer for actual execution."""
+    from langgraph.checkpoint.memory import MemorySaver
+    checkpointer = MemorySaver()
 
     if task_type == "promo":
         from src.agents.promo_graph import build_promo_graph
