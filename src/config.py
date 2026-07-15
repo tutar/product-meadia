@@ -11,13 +11,8 @@ class Settings(BaseSettings):
     litellm_base_url: str = "http://localhost:4000/v1"
     litellm_api_key: str = "sk-litellm-master"
 
-    agnes_video_api_key: str = ""
-    agnes_video_base_url: str = "https://apihub.agnes-ai.com"
-
-    voxcpm2_base_url: str = "http://localhost:8022/v1"
     latentsync_base_url: str = "http://localhost:8090"
     rustfs_base_url: str = "http://localhost:8001"
-    funasr_base_url: str = "http://localhost:8021/v1"
 
     google_client_id: str = ""
     google_client_secret: str = ""

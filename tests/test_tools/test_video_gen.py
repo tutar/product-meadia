@@ -7,7 +7,7 @@ from src.tools.video_gen import generate_video
 async def test_generate_video_text_to_video():
     mock_resp1 = MagicMock()
     mock_resp1.raise_for_status = MagicMock()
-    mock_resp1.json.return_value = {"video_id": "task_123", "status": "queued"}
+    mock_resp1.json.return_value = {"id": "vid_123", "status": "queued"}
 
     mock_resp2 = MagicMock()
     mock_resp2.raise_for_status = MagicMock()
@@ -29,7 +29,7 @@ async def test_generate_video_text_to_video():
 async def test_generate_video_keyframe_mode():
     mock_resp1 = MagicMock()
     mock_resp1.raise_for_status = MagicMock()
-    mock_resp1.json.return_value = {"video_id": "task_456", "status": "queued"}
+    mock_resp1.json.return_value = {"id": "vid_456", "status": "queued"}
 
     mock_resp2 = MagicMock()
     mock_resp2.raise_for_status = MagicMock()
@@ -44,15 +44,14 @@ async def test_generate_video_keyframe_mode():
         with patch("src.tools.video_gen.asyncio.sleep", new_callable=AsyncMock):
             url = await generate_video("Keyframe animation", image_urls=["https://img.example.com/1.png"])
             assert url == "https://video.example.com/keyframe.mp4"
-            assert "extra_body" in post_mock.call_args.kwargs["json"]
-            assert post_mock.call_args.kwargs["json"]["extra_body"]["mode"] == "keyframes"
+            assert post_mock.call_args.kwargs["json"]["mode"] == "keyframes"
 
 
 @pytest.mark.asyncio
 async def test_generate_video_failed_status():
     mock_resp1 = MagicMock()
     mock_resp1.raise_for_status = MagicMock()
-    mock_resp1.json.return_value = {"video_id": "task_fail", "status": "queued"}
+    mock_resp1.json.return_value = {"id": "vid_fail", "status": "queued"}
 
     mock_resp2 = MagicMock()
     mock_resp2.raise_for_status = MagicMock()

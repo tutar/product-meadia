@@ -6,18 +6,14 @@ from src.tools.tts import generate_tts
 @pytest.mark.asyncio
 async def test_generate_tts_returns_audio_path():
     mock_response = MagicMock()
-    mock_response.content = b"RIFF...WAV data..."
+    mock_response.content = b"RIFF...WAV..."
 
     mock_create = AsyncMock(return_value=mock_response)
     with patch("src.tools.tts.client.audio.speech.create", mock_create):
-        result = await generate_tts("Hello World")
+        result = await generate_tts("Hello")
         assert result["audio_url"].endswith(".wav")
         assert result["words"] == []
-        mock_create.assert_called_once_with(
-            model="openbmb/VoxCPM2",
-            input="Hello World",
-            voice="default",
-        )
+        mock_create.assert_called_once_with(model="voxcpm2", input="Hello", voice="default")
 
 
 @pytest.mark.asyncio

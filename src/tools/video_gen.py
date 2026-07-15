@@ -3,11 +3,18 @@ import httpx
 from src.config import settings
 from langfuse import observe
 
-HEADERS = {"Authorization": f"Bearer {settings.agnes_video_api_key}"}
+HEADERS = {
+    "Authorization": f"Bearer {settings.litellm_api_key}",
+    "Content-Type": "application/json",
+}
 
 
 @observe(name="generate_video")
 async def generate_video(prompt: str, image_urls: list[str] | None = None) -> str:
+    """Generate video via LiteLLM-proxied Agnes Video V2.0.
+
+    Uses OpenAI-compatible /v1/videos endpoint (create + poll).
+    """
     payload = {
         "model": "agnes-video-v2.0",
         "prompt": prompt,
@@ -17,24 +24,24 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
         "frame_rate": 24,
     }
     if image_urls:
-        payload["extra_body"] = {"image": image_urls, "mode": "keyframes"}
+        payload["image"] = image_urls[0]
+        payload["mode"] = "keyframes"
 
-    async with httpx.AsyncClient(timeout=360) as client:
-        resp = await client.post(
-            f"{settings.agnes_video_base_url}/v1/videos", headers=HEADERS, json=payload
-        )
+    async with httpx.AsyncClient(timeout=httpx.Timeout(360, connect=10)) as client:
+        base = settings.litellm_base_url
+
+        # Create video task
+        resp = await client.post(f"{base}/v1/videos", headers=HEADERS, json=payload)
         resp.raise_for_status()
-        video_id = resp.json()["video_id"]
+        data = resp.json()
+        video_id = data["id"]
 
+        # Poll until complete
         while True:
             await asyncio.sleep(10)
-            result = await client.get(
-                f"{settings.agnes_video_base_url}/agnesapi",
-                params={"video_id": video_id},
-                headers=HEADERS,
-            )
-            result.raise_for_status()
-            data = result.json()
+            resp = await client.get(f"{base}/v1/videos/{video_id}", headers=HEADERS)
+            resp.raise_for_status()
+            data = resp.json()
             if data["status"] == "completed":
                 return data["url"]
             if data["status"] == "failed":
