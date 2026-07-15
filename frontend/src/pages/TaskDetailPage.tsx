@@ -121,14 +121,6 @@ export default function TaskDetailPage() {
           <p className="text-secondary text-sm">Review and approve the content below to continue the pipeline.</p>
         </div>
       )}
-        <div className="steps mb-6">
-          {STEPS.filter(s => !s.includes("review")).map((s, i) => {
-            const realIdx = STEPS.indexOf(s);
-            const cls = realIdx < currentStepIdx ? "step done" : realIdx === currentStepIdx ? "step active" : "step";
-            return <div key={s} className={cls}>{i + 1}. {STEP_LABELS[s]}</div>;
-          })}
-        </div>
-      )}
 
       {task.error_message && (
         <div className="card mb-6" style={{ borderColor: "var(--danger)", background: "rgba(248,113,113,0.06)" }}>
