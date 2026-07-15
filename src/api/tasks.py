@@ -212,6 +212,8 @@ async def resume_task(
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status == "done":
         raise HTTPException(status_code=400, detail="Task already done")
+    if task.status in ("scripting", "imaging", "video_gen", "compositing"):
+        raise HTTPException(status_code=400, detail=f"Task already running ({task.status})")
     # Allow retry from failed — resume from last completed step
     if task.status == "failed":
         task.error_message = None

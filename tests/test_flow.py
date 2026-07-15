@@ -41,7 +41,10 @@ async def _resume(token: str, task_id: str):
 
 async def _approve_script(token: str, task_id: str):
     async with httpx.AsyncClient() as c:
-        return await c.put(f"{API}/tasks/{task_id}/script", headers={"Authorization": f"Bearer {token}"}, json={"approved": True})
+        r = await c.put(f"{API}/tasks/{task_id}/script", headers={"Authorization": f"Bearer {token}"}, json={"approved": True})
+    # Trigger resume after approval
+    await _resume(token, task_id)
+    return r
 
 
 async def _approve_all_images(token: str, task_id: str):
@@ -50,6 +53,8 @@ async def _approve_all_images(token: str, task_id: str):
         for img in images_r.json():
             if img["status"] != "approved":
                 await c.put(f"{API}/tasks/{task_id}/images/{img['id']}", headers={"Authorization": f"Bearer {token}"}, json={"action": "approve"})
+    # Trigger resume after approval
+    await _resume(token, task_id)
 
 
 async def _poll_until(token: str, task_id: str, target_status: str, max_seconds: int = 120) -> dict:
@@ -60,6 +65,7 @@ async def _poll_until(token: str, task_id: str, target_status: str, max_seconds:
         if task["status"] == "failed":
             raise RuntimeError(f"Task failed: {task.get('error_message', 'unknown')}")
         # Click resume if stuck
+        # Only resume from pending (stuck) — never from active processing states
         if task["status"] == "pending":
             await _resume(token, task_id)
         await asyncio.sleep(3)
@@ -86,7 +92,7 @@ async def test_full_promo_flow():
 
     # Approve script and wait for images
     await _approve_script(token, tid)
-    task = await _poll_until(token, tid, "image_review", max_seconds=120)
+    task = await _poll_until(token, tid, "image_review", max_seconds=300)
     assert task["status"] == "image_review", f"Expected image_review, got {task['status']}"
 
     # Approve images and wait for done

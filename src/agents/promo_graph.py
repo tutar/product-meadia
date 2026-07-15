@@ -57,12 +57,12 @@ def build_promo_graph(checkpointer=None) -> StateGraph:
     async def wait_script_review(state: VideoAgentState) -> dict:
         if state.get("script_approved"):
             return {}
-        return {}
+        return {"__status": "script_review"}
 
     async def wait_image_review(state: VideoAgentState) -> dict:
         if state.get("images_approved"):
             return {}
-        return {}
+        return {"__status": "image_review"}
 
     async def generate_images(state: VideoAgentState) -> dict:
         prompts = state.get("image_prompts", [])

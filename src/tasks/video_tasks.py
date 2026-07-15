@@ -140,22 +140,33 @@ async def _async_run(task_id: str, celery_task_id: str):
         except Exception:
             stream = graph.astream(initial_state, config)
 
+        last_node = None
         async for event in stream:
-            await progress_manager.send_progress(task_id, {"event": str(list(event.keys()))})
             for node_name, node_output in event.items():
+                # Track last meaningful node for interrupt detection
+                if node_name == "__interrupt__":
+                    # Map to the correct review state based on what ran last
+                    review_map = {
+                        "generate_script": "script_review",
+                        "generate_rewritten_script": "script_review",
+                        "generate_images": "image_review",
+                        "generate_character": "character_review",
+                    }
+                    next_review = review_map.get(last_node, "script_review")
+                    async with SessionLocal() as db:
+                        t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                        t.status = next_review
+                        await db.commit()
+                    await progress_manager.send_progress(task_id, {"status": next_review})
+                    return
+
                 if node_output is None:
                     continue
 
+                last_node = node_name
+
                 # Persist agent outputs to DB
                 await _persist_node_output(task_id, node_name, node_output)
-
-                if node_name.startswith("wait_"):
-                    async with SessionLocal() as db:
-                        t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
-                        t.status = node_name
-                        await db.commit()
-                    await progress_manager.send_progress(task_id, {"status": node_name})
-                    return  # Graph hit interrupt — task ends, will be resumed by API call
 
         # Graph completed without hitting an interrupt — collect final video path
         final_video = ""
