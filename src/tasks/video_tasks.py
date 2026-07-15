@@ -221,19 +221,22 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
             await db.commit()
 
         elif node_name == "generate_images":
-            # Delete old images, insert new ones
-            await db.execute(select(GeneratedImage).where(GeneratedImage.task_id == task_id))  # touch for delete
+            # Upsert images — preserve approved status on retry
             existing = (await db.execute(select(GeneratedImage).where(GeneratedImage.task_id == task_id))).scalars().all()
-            for img in existing:
-                await db.delete(img)
+            existing_map = {img.sort_order: img for img in existing}
             for img_data in output.get("generated_images", []):
-                gi = GeneratedImage(
-                    task_id=task_id,
-                    prompt="",
-                    image_url=img_data.get("image_url", ""),
-                    sort_order=img_data.get("sort_order", 0),
-                    status="pending_review",
-                )
+                sort_order = img_data.get("sort_order", 0)
+                old = existing_map.get(sort_order)
+                if old:
+                    old.image_url = img_data.get("image_url", old.image_url)
+                    old.status = img_data.get("status", old.status)
+                else:
+                    db.add(GeneratedImage(
+                        task_id=task_id, prompt="",
+                        image_url=img_data.get("image_url", ""),
+                        sort_order=sort_order,
+                        status=img_data.get("status", "pending_review"),
+                    ))
                 db.add(gi)
             await db.commit()
 
