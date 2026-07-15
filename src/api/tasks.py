@@ -210,8 +210,13 @@ async def resume_task(
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.status in ("done", "failed"):
-        raise HTTPException(status_code=400, detail=f"Task already {task.status}")
+    if task.status == "done":
+        raise HTTPException(status_code=400, detail="Task already done")
+    # Allow retry from failed — reset status
+    if task.status == "failed":
+        task.status = "pending"
+        task.error_message = None
+        await db.commit()
 
     # Run graph in background via asyncio task
     import asyncio as _asyncio
