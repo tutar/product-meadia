@@ -37,7 +37,8 @@ function App() {
 }
 
 function AppShell() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return null;
   if (!user) {
     return (
       <Routes>

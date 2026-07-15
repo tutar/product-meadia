@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import api from "../api/client";
 
 interface User {
@@ -9,6 +9,7 @@ interface User {
 
 interface AuthCtx {
   user: User | null;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (code: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
@@ -19,6 +20,17 @@ const AuthContext = createContext<AuthCtx>(null!);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Restore session from stored token on mount / page refresh
+  useEffect(() => {
+    const token = localStorage.getItem("access_token");
+    if (!token) { setLoading(false); return; }
+    api.get("/auth/me")
+      .then(r => setUser(r.data))
+      .catch(() => { localStorage.removeItem("access_token"); localStorage.removeItem("refresh_token"); })
+      .finally(() => setLoading(false));
+  }, []);
 
   const login = async (email: string, password: string) => {
     const { data } = await api.post("/auth/token", { grant_type: "password", email, password });
@@ -51,7 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, loginWithGoogle, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, loginWithGoogle, register, logout }}>
       {children}
     </AuthContext.Provider>
   );
