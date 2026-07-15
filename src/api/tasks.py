@@ -199,6 +199,28 @@ async def regenerate_image(
     return {"status": "queued"}
 
 
+@router.post("/{task_id}/resume")
+async def resume_task(
+    task_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    """Manually resume/start a task — dispatches the graph in background."""
+    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status in ("done", "failed"):
+        raise HTTPException(status_code=400, detail=f"Task already {task.status}")
+
+    # Run graph in background via asyncio task
+    import asyncio as _asyncio
+    from src.tasks.video_tasks import _async_run
+    _asyncio.create_task(_async_run(str(task_id), "manual-resume"))
+
+    return {"status": "resumed", "task_status": task.status}
+
+
 @router.get("/{task_id}/video")
 async def download_video(
     task_id: UUID,

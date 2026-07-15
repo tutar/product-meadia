@@ -2,6 +2,28 @@ import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/client";
 
+function ResumeButton({ taskId }: { taskId: string }) {
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const resume = async () => {
+    setLoading(true);
+    try {
+      await api.post(`/tasks/${taskId}/resume`);
+      setDone(true);
+      setTimeout(() => window.location.reload(), 1500);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button className="btn btn-primary btn-sm" onClick={resume} disabled={loading || done}>
+      {done ? "Resumed!" : loading ? "Resuming..." : "Resume"}
+    </button>
+  );
+}
+
 const STEP_LABELS: Record<string, string> = {
   pending: "Queued", scripting: "Writing Script", script_review: "Review Script",
   imaging: "Generating Images", image_review: "Review Images",
@@ -68,8 +90,37 @@ export default function TaskDetailPage() {
         {task.status === "done" && <span className="badge badge-done">Complete</span>}
       </div>
 
+      {/* Stuck / Resume hint */}
+      {!["done", "failed", "script_review", "image_review", "character_review"].includes(task.status) && (
+        <div className="card mb-6" style={{ background: "rgba(124,92,252,0.06)", borderColor: "var(--accent)" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p style={{ fontWeight: 600, marginBottom: 4 }}>Processing — {STEP_LABELS[task.status] || task.status}</p>
+              <p className="text-secondary text-sm">The AI pipeline is working on this step. If stuck, click Resume to retry.</p>
+            </div>
+            <ResumeButton taskId={task.id} />
+          </div>
+        </div>
+      )}
+
       {/* Progress */}
       {task.status !== "done" && task.status !== "failed" && currentStepIdx >= 0 && (
+        <div className="steps mb-6">
+          {STEPS.filter(s => !s.includes("review")).map((s, i) => {
+            const realIdx = STEPS.indexOf(s);
+            const cls = realIdx < currentStepIdx ? "step done" : realIdx === currentStepIdx ? "step active" : "step";
+            return <div key={s} className={cls}>{i + 1}. {STEP_LABELS[s]}</div>;
+          })}
+        </div>
+      )}
+
+      {/* Stuck — also show Resume for review states that need manual approval */}
+      {["script_review", "image_review", "character_review"].includes(task.status) && (
+        <div className="card mb-6" style={{ background: "rgba(251,191,36,0.08)", borderColor: "var(--warning)" }}>
+          <p style={{ fontWeight: 600, marginBottom: 4 }}>Awaiting your review</p>
+          <p className="text-secondary text-sm">Review and approve the content below to continue the pipeline.</p>
+        </div>
+      )}
         <div className="steps mb-6">
           {STEPS.filter(s => !s.includes("review")).map((s, i) => {
             const realIdx = STEPS.indexOf(s);
