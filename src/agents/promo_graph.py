@@ -55,14 +55,12 @@ def build_promo_graph(checkpointer=None) -> StateGraph:
         }
 
     async def wait_script_review(state: VideoAgentState) -> dict:
-        # Skip if script already approved (retry from later step)
-        if state.get("review_approved"):
+        if state.get("script_approved"):
             return {}
         return {}
 
     async def wait_image_review(state: VideoAgentState) -> dict:
-        # Skip if images already approved
-        if state.get("review_approved"):
+        if state.get("images_approved"):
             return {}
         return {}
 

@@ -31,4 +31,6 @@ class VideoAgentState(TypedDict):
     final_video_path: str
 
     review_approved: bool
+    script_approved: bool
+    images_approved: bool
     messages: Annotated[list, add_messages]

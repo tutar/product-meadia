@@ -78,7 +78,8 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "tts_audio_url": "", "tts_words": [], "lipsync_video_url": "",
                 "character_image_url": "", "viral_analysis": {},
                 "hyperframes_html": "", "final_video_path": "",
-                "review_approved": False, "messages": [],
+                "review_approved": False, "script_approved": False,
+                "images_approved": False, "messages": [],
             }
 
             if task.type == "viral":
@@ -106,9 +107,11 @@ async def _async_run(task_id: str, celery_task_id: str):
                     for img in db_images
                 ]
 
-            # Set review_approved to skip wait nodes when resuming past completed steps
+            # Set approval flags to skip completed wait nodes on retry
             if db_script and db_script.status == "approved":
-                initial_state["review_approved"] = True
+                initial_state["script_approved"] = True
+            if db_images and all(img.status == "approved" for img in db_images):
+                initial_state["images_approved"] = True
 
             # Determine starting step
             if task.status == "failed":
