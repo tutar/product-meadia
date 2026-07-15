@@ -119,12 +119,20 @@ async def _async_run(task_id: str, celery_task_id: str):
                     await progress_manager.send_progress(task_id, {"status": node_name})
                     return  # Graph hit interrupt — task ends, will be resumed by API call
 
-        # Graph completed without hitting an interrupt
+        # Graph completed without hitting an interrupt — collect final video path
+        final_video = ""
+        async for event in graph.astream(None, config):
+            for node_name, node_output in event.items():
+                if node_output and node_output.get("final_video_path"):
+                    final_video = node_output["final_video_path"]
+
         async with SessionLocal() as db:
             t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
             t.status = "done"
+            if final_video:
+                t.result_video_url = final_video
             await db.commit()
-        await progress_manager.send_progress(task_id, {"status": "done"})
+        await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
 
     except Exception as e:
         async with SessionLocal() as db:
@@ -170,7 +178,6 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
             await db.commit()
 
         elif node_name == "generate_character":
-            # Store character image as a generated image entry
             if output.get("character_image_url"):
                 gi = GeneratedImage(
                     task_id=task_id, prompt="character",
@@ -178,4 +185,10 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                     sort_order=0, status="pending_review",
                 )
                 db.add(gi)
+                await db.commit()
+
+        elif node_name in ("composite_video", "composite"):
+            if output.get("final_video_path"):
+                t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                t.result_video_url = output["final_video_path"]
                 await db.commit()

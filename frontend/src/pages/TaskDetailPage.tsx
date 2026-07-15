@@ -164,6 +164,23 @@ export default function TaskDetailPage() {
         </div>
       )}
 
+      {/* Done state */}
+      {task.status === "done" && (
+        <div className="card mb-6" style={{ borderColor: "var(--success)", background: "rgba(52,211,153,0.06)" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p style={{ fontWeight: 600, marginBottom: 4, color: "var(--success)" }}>Video Complete</p>
+              <p className="text-secondary text-sm">
+                {task.result_video_url ? "Your video is ready. You can preview and download it below." : "Video generation finished. The output will appear here shortly."}
+              </p>
+            </div>
+            {task.result_video_url && (
+              <a href={task.result_video_url} download className="btn btn-primary btn-sm" style={{ textDecoration: "none" }}>Download</a>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Video output */}
       {task.result_video_url && (
         <div className="card mb-6">
