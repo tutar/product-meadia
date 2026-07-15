@@ -223,17 +223,19 @@ export default function TaskDetailPage() {
                   </div>
                 )}
                 <div className="image-status">{img.status.replace(/_/g, " ")}</div>
-                <div className="image-actions">
-                  {img.status === "pending_review" && img.image_url && (
-                    <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>{t("task.approve")}</button>
-                  )}
-                  {img.status !== "approved" && (
-                    <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "reject")}>{t("task.reject")}</button>
-                  )}
-                  {img.status === "rejected" && (
-                    <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => regenerateImage(img.id)}>{t("task.regen")}</button>
-                  )}
-                </div>
+                {task.status === "image_review" && (
+                  <div className="image-actions">
+                    {img.status === "pending_review" && img.image_url && (
+                      <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>{t("task.approve")}</button>
+                    )}
+                    {img.status !== "approved" && (
+                      <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "reject")}>{t("task.reject")}</button>
+                    )}
+                    {img.status === "rejected" && (
+                      <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => regenerateImage(img.id)}>{t("task.regen")}</button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -25,8 +25,11 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
         "frame_rate": 24,
     }
     if image_urls:
-        payload["image"] = image_urls[0]
-        payload["mode"] = "keyframes"
+        if len(image_urls) >= 2:
+            payload["image"] = image_urls
+            payload["mode"] = "keyframes"
+        else:
+            payload["image"] = image_urls[0]
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(360, connect=10)) as client:
         base = settings.litellm_base_url
