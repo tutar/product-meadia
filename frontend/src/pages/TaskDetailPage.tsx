@@ -1,28 +1,6 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/client";
-
-function ResumeButton({ taskId }: { taskId: string }) {
-  const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
-
-  const resume = async () => {
-    setLoading(true);
-    try {
-      await api.post(`/tasks/${taskId}/resume`);
-      setDone(true);
-      setTimeout(() => window.location.reload(), 1500);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <button className="btn btn-primary btn-sm" onClick={resume} disabled={loading || done}>
-      {done ? "Resumed!" : loading ? "Resuming..." : "Resume"}
-    </button>
-  );
-}
 
 const STEP_LABELS: Record<string, string> = {
   pending: "Queued", scripting: "Writing Script", script_review: "Review Script",
@@ -33,10 +11,11 @@ const STEP_LABELS: Record<string, string> = {
 
 const STEPS = ["pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 
-function stepIndex(status: string) {
-  const idx = STEPS.indexOf(status);
-  return idx >= 0 ? idx : -1;
-}
+const REVIEW_STATES = ["script_review", "image_review", "character_review"];
+const FINAL_STATES = ["done", "failed"];
+const PROCESSING_STATES = ["pending", "scripting", "imaging", "video_gen", "compositing"];
+
+function stepIndex(status: string) { return Math.max(0, STEPS.indexOf(status)); }
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -44,33 +23,72 @@ export default function TaskDetailPage() {
   const [script, setScript] = useState<any>(null);
   const [images, setImages] = useState<any[]>([]);
   const [editedContent, setEditedContent] = useState("");
-  const [scriptLoading, setScriptLoading] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const [loading, setLoading] = useState(false);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    api.get(`/tasks/${id}`).then(r => setTask(r.data)).catch(() => {});
-    api.get(`/tasks/${id}/script`).then(r => { setScript(r.data); setEditedContent(r.data.edited_content || r.data.content); }).catch(() => {});
-    api.get(`/tasks/${id}/images`).then(r => setImages(r.data)).catch(() => {});
-
-    const ws = new WebSocket(`ws://localhost:8000/ws/tasks/${id}`);
-    ws.onmessage = (e) => {
-      const p = JSON.parse(e.data);
-      if (p.status === "done") setTask((prev: any) => ({ ...prev, status: "done", result_video_url: p.video_url }));
-      if (p.status === "failed") setTask((prev: any) => ({ ...prev, status: "failed", error_message: p.error }));
-    };
-    wsRef.current = ws;
-    return () => ws.close();
+  const fetchData = useCallback(async () => {
+    if (!id) return;
+    const [t, s, imgs] = await Promise.all([
+      api.get(`/tasks/${id}`).then(r => r.data).catch(() => null),
+      api.get(`/tasks/${id}/script`).then(r => r.data).catch(() => null),
+      api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
+    ]);
+    if (t) setTask(t);
+    if (s) { setScript(s); setEditedContent(s.edited_content || s.content); }
+    if (imgs.length > 0) setImages(imgs);
   }, [id]);
 
+  // Initial load
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Auto-poll when processing
+  useEffect(() => {
+    if (!task || FINAL_STATES.includes(task.status) || REVIEW_STATES.includes(task.status)) {
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      return;
+    }
+    if (!pollingRef.current) {
+      pollingRef.current = setInterval(fetchData, 3000);
+    }
+    return () => { if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; } };
+  }, [task?.status, fetchData]);
+
+  const doResume = async () => {
+    setLoading(true);
+    await api.post(`/tasks/${id}/resume`);
+    await fetchData();
+    setLoading(false);
+  };
+
   const approveScript = async () => {
-    setScriptLoading(true);
+    setLoading(true);
     await api.put(`/tasks/${id}/script`, { approved: true, edited_content: editedContent });
-    setTask((prev: any) => ({ ...prev, status: "imaging" }));
-    setScriptLoading(false);
+    await api.post(`/tasks/${id}/resume`);
+    await fetchData();
+    setLoading(false);
+  };
+
+  const approveCharacter = async () => {
+    setLoading(true);
+    await api.put(`/tasks/${id}/script`, { approved: true });
+    await api.post(`/tasks/${id}/resume`);
+    await fetchData();
+    setLoading(false);
   };
 
   const reviewImage = async (imageId: string, action: "approve" | "reject") => {
     await api.put(`/tasks/${id}/images/${imageId}`, { action });
+    const { data } = await api.get(`/tasks/${id}/images`);
+    setImages(data);
+    // If all approved, trigger resume
+    if (data.every((i: any) => i.status === "approved")) {
+      await api.post(`/tasks/${id}/resume`);
+      await fetchData();
+    }
+  };
+
+  const regenerateImage = async (imageId: string) => {
+    await api.post(`/tasks/${id}/images/${imageId}/regenerate`);
     const { data } = await api.get(`/tasks/${id}/images`);
     setImages(data);
   };
@@ -78,6 +96,8 @@ export default function TaskDetailPage() {
   if (!task) return <div className="empty-state"><p>Loading...</p></div>;
 
   const currentStepIdx = stepIndex(task.status);
+  const isProcessing = PROCESSING_STATES.includes(task.status);
+  const isReview = REVIEW_STATES.includes(task.status);
 
   return (
     <div>
@@ -90,21 +110,35 @@ export default function TaskDetailPage() {
         {task.status === "done" && <span className="badge badge-done">Complete</span>}
       </div>
 
-      {/* Stuck / Resume hint */}
-      {!["done", "failed", "script_review", "image_review", "character_review"].includes(task.status) && (
-        <div className="card mb-6" style={{ background: "rgba(124,92,252,0.06)", borderColor: "var(--accent)" }}>
+      {/* Processing card */}
+      {isProcessing && (
+        <div className="card mb-6" style={{ background: task.status === "pending" ? "rgba(124,92,252,0.06)" : "rgba(124,92,252,0.04)", borderColor: "var(--accent)" }}>
           <div className="flex items-center justify-between">
             <div>
-              <p style={{ fontWeight: 600, marginBottom: 4 }}>Processing — {STEP_LABELS[task.status] || task.status}</p>
-              <p className="text-secondary text-sm">The AI pipeline is working on this step. If stuck, click Resume to retry.</p>
+              <p style={{ fontWeight: 600, marginBottom: 4 }}>
+                {task.status === "pending" ? "Ready to start" : `Running — ${STEP_LABELS[task.status]}`}
+              </p>
+              <p className="text-secondary text-sm">
+                {task.status === "pending"
+                  ? "Click Resume to start the AI pipeline."
+                  : "The AI is working on this step. Progress updates automatically."}
+              </p>
             </div>
-            <ResumeButton taskId={task.id} />
+            {task.status === "pending" ? (
+              <button className="btn btn-primary btn-sm" onClick={doResume} disabled={loading}>
+                {loading ? "Starting..." : "Resume"}
+              </button>
+            ) : (
+              <span style={{ color: "var(--accent)", fontSize: "0.85rem" }}>
+                {loading ? "Working..." : "Auto-polling..."}
+              </span>
+            )}
           </div>
         </div>
       )}
 
-      {/* Progress */}
-      {task.status !== "done" && task.status !== "failed" && currentStepIdx >= 0 && (
+      {/* Progress steps */}
+      {!FINAL_STATES.includes(task.status) && (
         <div className="steps mb-6">
           {STEPS.filter(s => !s.includes("review")).map((s, i) => {
             const realIdx = STEPS.indexOf(s);
@@ -114,17 +148,19 @@ export default function TaskDetailPage() {
         </div>
       )}
 
-      {/* Stuck — also show Resume for review states that need manual approval */}
-      {["script_review", "image_review", "character_review"].includes(task.status) && (
+      {/* Review notice */}
+      {isReview && (
         <div className="card mb-6" style={{ background: "rgba(251,191,36,0.08)", borderColor: "var(--warning)" }}>
           <p style={{ fontWeight: 600, marginBottom: 4 }}>Awaiting your review</p>
-          <p className="text-secondary text-sm">Review and approve the content below to continue the pipeline.</p>
+          <p className="text-secondary text-sm">Review and approve the content below to continue.</p>
         </div>
       )}
 
+      {/* Error */}
       {task.error_message && (
         <div className="card mb-6" style={{ borderColor: "var(--danger)", background: "rgba(248,113,113,0.06)" }}>
           <p className="text-danger text-sm">{task.error_message}</p>
+          <button className="btn btn-primary btn-sm mt-4" onClick={doResume}>Retry</button>
         </div>
       )}
 
@@ -148,8 +184,8 @@ export default function TaskDetailPage() {
             <textarea className="textarea" value={editedContent} onChange={e => setEditedContent(e.target.value)} />
           </div>
           <div className="flex gap-3 mt-4">
-            <button className="btn btn-primary" onClick={approveScript} disabled={scriptLoading}>
-              {scriptLoading ? "Approving..." : "Approve & Continue"}
+            <button className="btn btn-primary" onClick={approveScript} disabled={loading}>
+              {loading ? "Submitting..." : "Approve & Continue"}
             </button>
           </div>
         </div>
@@ -165,13 +201,24 @@ export default function TaskDetailPage() {
           <div className="image-grid">
             {images.map((img: any) => (
               <div key={img.id} className="image-card">
-                <img src={img.image_url} alt="" />
+                {img.image_url ? (
+                  <img src={img.image_url} alt="" />
+                ) : (
+                  <div style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+                    Regenerating...
+                  </div>
+                )}
                 <div className="image-status">{img.status.replace(/_/g, " ")}</div>
                 <div className="image-actions">
-                  {img.status !== "approved" && (
+                  {img.status === "pending_review" && img.image_url && (
                     <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>Approve</button>
                   )}
-                  <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "reject")}>Reject</button>
+                  {img.status !== "approved" && (
+                    <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "reject")}>Reject</button>
+                  )}
+                  {img.status === "rejected" && (
+                    <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => regenerateImage(img.id)}>Regen</button>
+                  )}
                 </div>
               </div>
             ))}
@@ -183,10 +230,10 @@ export default function TaskDetailPage() {
       {task.status === "character_review" && (
         <div className="card mb-6">
           <h3 className="mb-4">Character Review</h3>
-          <p className="text-secondary mb-6">Review the AI-generated character before generating the script.</p>
-          <div className="flex gap-3">
-            <button className="btn btn-primary" onClick={approveScript}>Approve Character</button>
-          </div>
+          <p className="text-secondary mb-6">Review the AI-generated character before continuing.</p>
+          <button className="btn btn-primary" onClick={approveCharacter} disabled={loading}>
+            {loading ? "Submitting..." : "Approve Character"}
+          </button>
         </div>
       )}
     </div>
