@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -7,8 +8,19 @@ import CreateTaskPage from "./pages/CreateTaskPage";
 import TaskDetailPage from "./pages/TaskDetailPage";
 import "./styles/design.css";
 
+function LangSwitcher() {
+  const { i18n } = useTranslation();
+  const toggle = () => i18n.changeLanguage(i18n.language === "zh" ? "en" : "zh");
+  return (
+    <button onClick={toggle} className="btn btn-ghost btn-sm" style={{ fontSize: "0.8rem", minWidth: 36 }}>
+      {i18n.language === "zh" ? "EN" : "中"}
+    </button>
+  );
+}
+
 function AppHeader() {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
   const location = useLocation();
   if (!user) return null;
 
@@ -18,9 +30,10 @@ function AppHeader() {
     <header className="app-header">
       <Link to="/dashboard" className="logo">Vid<span>Flow</span></Link>
       <nav>
-        <Link to="/dashboard" className={isActive("/dashboard")}>Dashboard</Link>
-        <Link to="/tasks/new" className={isActive("/tasks/new")}>New Video</Link>
-        <button onClick={logout} className="btn btn-ghost btn-sm">Logout</button>
+        <Link to="/dashboard" className={isActive("/dashboard")}>{t("nav.dashboard")}</Link>
+        <Link to="/tasks/new" className={isActive("/tasks/new")}>{t("nav.newVideo")}</Link>
+        <LangSwitcher />
+        <button onClick={logout} className="btn btn-ghost btn-sm">{t("nav.logout")}</button>
       </nav>
     </header>
   );
