@@ -237,7 +237,6 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                         sort_order=sort_order,
                         status=img_data.get("status", "pending_review"),
                     ))
-                db.add(gi)
             await db.commit()
 
         elif node_name == "generate_character":
@@ -250,8 +249,22 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 db.add(gi)
                 await db.commit()
 
+        elif node_name == "generate_video_clips":
+            # Persist video clip URLs for retry resilience
+            if output.get("video_clips"):
+                t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                t.status = "video_gen"
+                await db.commit()
+
+        elif node_name == "generate_voiceover":
+            if output.get("tts_audio_url"):
+                t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                t.status = "compositing"
+                await db.commit()
+
         elif node_name in ("composite_video", "composite"):
             if output.get("final_video_path"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                 t.result_video_url = output["final_video_path"]
+                t.status = "done"
                 await db.commit()
