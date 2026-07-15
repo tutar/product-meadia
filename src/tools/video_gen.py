@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 import httpx
 from src.config import settings
 from langfuse import observe
@@ -31,7 +32,7 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
         base = settings.litellm_base_url
 
         # Create video task
-        resp = await client.post(f"{base}/v1/videos", headers=HEADERS, json=payload)
+        resp = await client.post(f"{base}/videos", headers=HEADERS, json=payload)
         resp.raise_for_status()
         data = resp.json()
         video_id = data["id"]
@@ -39,10 +40,15 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
         # Poll until complete
         while True:
             await asyncio.sleep(10)
-            resp = await client.get(f"{base}/v1/videos/{video_id}", headers=HEADERS)
+            resp = await client.get(f"{base}/videos/{video_id}", headers=HEADERS)
             resp.raise_for_status()
             data = resp.json()
             if data["status"] == "completed":
-                return data["url"]
+                # Fetch video content and save to temp file
+                vresp = await client.get(f"{base}/videos/{video_id}/content", headers=HEADERS)
+                vresp.raise_for_status()
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+                    f.write(vresp.content)
+                    return f.name
             if data["status"] == "failed":
                 raise RuntimeError(f"Video generation failed: {data.get('error')}")
