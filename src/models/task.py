@@ -1,5 +1,5 @@
 from sqlalchemy import String, Integer, Text, Column, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from src.models.base import Base, UUIDMixin, TimestampMixin
 
@@ -13,6 +13,7 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     error_message = Column(Text, nullable=True)
     result_video_url = Column(Text, nullable=True)
     celery_task_id = Column(String(255), nullable=True)
+    progress_log = Column(JSONB, default=list)
 
     product = relationship("Product")
     script = relationship("Script", back_populates="task", uselist=False)

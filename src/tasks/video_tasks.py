@@ -151,6 +151,13 @@ async def _async_run(task_id: str, celery_task_id: str):
         except Exception:
             stream = graph.astream(initial_state, config)
 
+        import datetime as _dt
+        progress_log: list = []
+        async with SessionLocal() as db:
+            t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            t.progress_log = []
+            await db.commit()
+
         last_node = None
         async for event in stream:
             for node_name, node_output in event.items():
@@ -176,8 +183,27 @@ async def _async_run(task_id: str, celery_task_id: str):
 
                 last_node = node_name
 
-                # Persist agent outputs to DB
+                # Persist agent outputs to DB and record progress
                 await _persist_node_output(task_id, node_name, node_output)
+                entry = {"step": node_name, "time": _dt.datetime.utcnow().isoformat() + "Z", "status": "ok"}
+                # Summarize output for display
+                if node_name in ("generate_script", "generate_rewritten_script"):
+                    entry["summary"] = f"Script generated ({len(node_output.get('script_content',''))} chars)"
+                elif node_name == "generate_images":
+                    imgs = node_output.get("generated_images", [])
+                    entry["summary"] = f"Images: {len(imgs)} generated/reused"
+                elif node_name == "generate_video_clips":
+                    clips = node_output.get("video_clips", [])
+                    entry["summary"] = f"Video clips: {len(clips)} generated"
+                elif node_name == "generate_voiceover":
+                    entry["summary"] = "TTS audio generated"
+                elif node_name in ("composite_video", "composite"):
+                    entry["summary"] = f"Final video: {node_output.get('final_video_path', 'N/A')[:60]}"
+                progress_log.append(entry)
+                async with SessionLocal() as db:
+                    t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                    t.progress_log = progress_log
+                    await db.commit()
 
         # Graph completed without hitting an interrupt — collect final video path
         final_video = ""
@@ -195,10 +221,17 @@ async def _async_run(task_id: str, celery_task_id: str):
         await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
 
     except Exception as e:
+        progress_log.append({
+            "step": last_node or "unknown",
+            "time": _dt.datetime.utcnow().isoformat() + "Z",
+            "status": "error",
+            "summary": f"{type(e).__name__}: {str(e)[:300]}"
+        })
         async with SessionLocal() as db:
             t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
             t.status = "failed"
             t.error_message = f"{type(e).__name__}: {e}"
+            t.progress_log = progress_log
             await db.commit()
         await progress_manager.send_progress(task_id, {"status": "failed", "error": str(e)})
         raise

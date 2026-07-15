@@ -66,6 +66,7 @@ class TaskResponse(BaseModel):
     image_count: int
     error_message: str | None
     result_video_url: str | None
+    progress_log: list[dict] | None
     created_at: datetime
     updated_at: datetime
 

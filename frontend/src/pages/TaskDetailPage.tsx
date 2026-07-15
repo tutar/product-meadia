@@ -160,6 +160,39 @@ export default function TaskDetailPage() {
         </div>
       )}
 
+      {/* Progress log */}
+      {task.progress_log && task.progress_log.length > 0 && (
+        <details className="card mb-6" style={{ borderColor: "var(--border)" }}>
+          <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.9rem", padding: 4 }}>
+            Execution Log ({task.progress_log.length} steps)
+          </summary>
+          <div style={{ marginTop: 16 }}>
+            {task.progress_log.map((entry: any, i: number) => (
+              <div key={i} style={{
+                display: "flex", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)",
+                fontSize: "0.82rem", alignItems: "flex-start"
+              }}>
+                <span style={{
+                  color: entry.status === "error" ? "var(--danger)" : "var(--success)",
+                  fontWeight: 600, minWidth: 48
+                }}>
+                  {entry.status === "error" ? "FAIL" : "OK"}
+                </span>
+                <div>
+                  <div style={{ color: "var(--text)", fontWeight: 500 }}>{entry.step}</div>
+                  <div style={{ color: entry.status === "error" ? "var(--danger)" : "var(--text-secondary)" }}>
+                    {entry.summary}
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: 2 }}>
+                    {new Date(entry.time).toLocaleTimeString()}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {task.error_message && (
         <div className="card mb-6" style={{ borderColor: "var(--danger)", background: "rgba(248,113,113,0.06)" }}>
           <p className="text-danger text-sm">{task.error_message}</p>
