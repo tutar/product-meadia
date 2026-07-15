@@ -106,6 +106,10 @@ async def _async_run(task_id: str, celery_task_id: str):
                     for img in db_images
                 ]
 
+            # Set review_approved to skip wait nodes when resuming past completed steps
+            if db_script and db_script.status == "approved":
+                initial_state["review_approved"] = True
+
             # Determine starting step
             if task.status == "failed":
                 if db_images and any(img.status == "approved" for img in db_images):

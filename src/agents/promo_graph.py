@@ -55,6 +55,15 @@ def build_promo_graph(checkpointer=None) -> StateGraph:
         }
 
     async def wait_script_review(state: VideoAgentState) -> dict:
+        # Skip if script already approved (retry from later step)
+        if state.get("review_approved"):
+            return {}
+        return {}
+
+    async def wait_image_review(state: VideoAgentState) -> dict:
+        # Skip if images already approved
+        if state.get("review_approved"):
+            return {}
         return {}
 
     async def generate_images(state: VideoAgentState) -> dict:
@@ -70,9 +79,6 @@ def build_promo_graph(checkpointer=None) -> StateGraph:
                 url = await generate_image(p)
                 images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
         return {"generated_images": images}
-
-    async def wait_image_review(state: VideoAgentState) -> dict:
-        return {}
 
     async def generate_video_clips(state: VideoAgentState) -> dict:
         approved_urls = [img["image_url"] for img in state.get("generated_images", []) if img.get("status") == "approved"]
