@@ -33,17 +33,18 @@ def _get_graph(task_type: str):
 
 async def _make_runnable_graph(task_type: str):
     """Recompile the graph with PostgresSaver checkpointer for actual execution."""
-    from langgraph.graph import StateGraph, END
-    from src.agents.promo_graph import build_promo_graph
-    from src.agents.viral_graph import build_viral_graph
-    from src.agents.personify_graph import build_personify_graph
-
-    builders = {"promo": build_promo_graph, "viral": build_viral_graph, "personify": build_personify_graph}
     checkpointer = await get_checkpointer()
-    return builders[task_type]().compile(
-        checkpointer=checkpointer,
-        interrupt_before=_get_graph(task_type).interrupt_before_nodes,
-    )
+
+    if task_type == "promo":
+        from src.agents.promo_graph import build_promo_graph
+        return build_promo_graph(checkpointer=checkpointer)
+    elif task_type == "viral":
+        from src.agents.viral_graph import build_viral_graph
+        return build_viral_graph(checkpointer=checkpointer)
+    elif task_type == "personify":
+        from src.agents.personify_graph import build_personify_graph
+        return build_personify_graph(checkpointer=checkpointer)
+    raise ValueError(f"Unknown task type: {task_type}")
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
