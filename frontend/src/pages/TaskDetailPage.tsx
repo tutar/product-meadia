@@ -109,7 +109,7 @@ export default function TaskDetailPage() {
   const currentStepIdx = stepIndex(task.status);
   const isProcessing = !FINAL_STATES.includes(task.status) && !REVIEW_STATES.includes(task.status);
   const isReview = REVIEW_STATES.includes(task.status);
-  const statusLabel = t(`steps.${task.status}`, task.status.replace(/_/g, " "));
+  const statusLabel = String(t(`steps.${task.status}`, task.status.replace(/_/g, " ")));
   const titleKey = task.type === "promo" ? "task.promoTitle" : task.type === "viral" ? "task.viralTitle" : "task.personifyTitle";
 
   return (

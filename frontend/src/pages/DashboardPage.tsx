@@ -41,7 +41,7 @@ export default function DashboardPage() {
             <tbody>
               {tasks.map((task: any) => (
                 <tr key={task.id}>
-                  <td><strong>{t(`types.${task.type}`, task.type)}</strong></td>
+                  <td><strong>{String(t(`types.${task.type}`, task.type))}</strong></td>
                   <td>{statusBadge(task.status)}</td>
                   <td className="text-secondary text-sm">{new Date(task.created_at).toLocaleDateString(t("auth.signInButton") === "登录" ? "zh-CN" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
                   <td><Link to={`/tasks/${task.id}`} className="btn btn-ghost btn-sm">{t("dashboard.view")}</Link></td>
