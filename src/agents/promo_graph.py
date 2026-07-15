@@ -12,6 +12,7 @@ SCRIPT_SYSTEM = """You are a perfume video scriptwriter. Given a perfume product
 2. Voiceover text (same as script, cleaned for TTS)
 3. {image_count} image generation prompts. Each prompt describes a cinematic perfume-ad visual scene.
    Match the script's narrative flow. Style: luxury, cinematic lighting, product-focused.
+   IMPORTANT: Keep prompts clean, safe-for-work, and family-friendly. Focus on the product, scenery, lighting, and textures. Avoid any depiction of people's bodies, skin, or suggestive imagery. Use still-life, close-ups of the bottle, nature scenes with the product, or abstract elegant compositions.
 
 Return ONLY JSON: {{"script": "...", "voiceover": "...", "image_prompts": ["prompt1", ...]}}"""
 
