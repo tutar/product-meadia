@@ -32,8 +32,14 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
         base = settings.litellm_base_url
 
         # Create video task
-        resp = await client.post(f"{base}/videos", headers=HEADERS, json=payload)
-        resp.raise_for_status()
+        # Create with rate limit handling (1 req/min)
+        for attempt in range(3):
+            resp = await client.post(f"{base}/videos", headers=HEADERS, json=payload)
+            if resp.status_code == 429:
+                await asyncio.sleep(65)  # Wait for rate limit window
+                continue
+            resp.raise_for_status()
+            break
         data = resp.json()
         video_id = data["id"]
 

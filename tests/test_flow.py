@@ -79,7 +79,7 @@ async def test_full_promo_flow():
     token = await _register_and_login(email, "test123456")
 
     pid = await _create_product(token, "Flow Test Perfume")
-    tid = await _create_task(token, pid, "promo", 2)
+    tid = await _create_task(token, pid, "promo", 1)  # 1 image to avoid video rate limit
 
     # Initial state
     task = await _get_task(token, tid)
@@ -95,7 +95,7 @@ async def test_full_promo_flow():
     task = await _poll_until(token, tid, "image_review", max_seconds=300)
     assert task["status"] == "image_review", f"Expected image_review, got {task['status']}"
 
-    # Approve images and wait for done
+    # Approve images and wait for done (video gen takes ~2min with polling)
     await _approve_all_images(token, tid)
     task = await _poll_until(token, tid, "done", max_seconds=300)
     assert task["status"] == "done", f"Expected done, got {task['status']}"
