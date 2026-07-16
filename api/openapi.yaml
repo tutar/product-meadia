@@ -584,8 +584,9 @@ components:
         created_at: { type: string, format: date-time }
     MediaAccess:
       type: object
-      required: [url, expires_at]
+      required: [asset_id, url, expires_at]
       properties:
+        asset_id: { type: string, format: uuid }
         url: { type: string, format: uri }
         expires_at: { type: string, format: date-time }
     AttributeType:
