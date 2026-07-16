@@ -7,6 +7,9 @@ from src.models.base import Base, UUIDMixin, TimestampMixin
 
 class Product(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "products"
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="RESTRICT"), nullable=True)
+    category = relationship("Category", back_populates="products")
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     category_id = Column(
