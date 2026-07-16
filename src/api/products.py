@@ -70,15 +70,6 @@ async def update(id,body:ProductUpdate,db=Depends(get_async_session),user=Depend
   asset=(await db.execute(select(MediaAsset).where(MediaAsset.id==body.main_image_asset_id,MediaAsset.owner_user_id==user.id,MediaAsset.status=='available',MediaAsset.category=='product_image'))).scalar_one_or_none()
   if not asset: raise HTTPException(404,'Main image asset not found')
   p.main_image_asset_id=asset.id; p.main_image_url=''; p.main_image_source='asset'
- if body.main_image_asset_id:
-  asset = (await db.execute(select(MediaAsset).where(
-      MediaAsset.id == body.main_image_asset_id,
-      MediaAsset.owner_user_id == user.id,
-      MediaAsset.status == 'available',
-      MediaAsset.category == 'product_image',
-  ))).scalar_one_or_none()
-  if not asset: raise HTTPException(404,'Main image asset not found')
-  p.main_image_asset_id=asset.id; p.main_image_url=''; p.main_image_source='asset'
  data=body.model_dump(exclude={'main_image_candidate_id','main_image_url','main_image_source'})
  for k,v in data.items(): setattr(p,k,v)
  if body.main_image_candidate_id and (body.main_image_url or body.main_image_source or body.main_image_asset_id): raise HTTPException(422,'choose upload or candidate')
