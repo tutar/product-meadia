@@ -36,6 +36,7 @@ class ImageResponse(BaseModel):
     prompt: str
     image_url: str | None
     asset_id: UUID | None = None
+    access_url: str | None = None
     sort_order: int
     status: str
 

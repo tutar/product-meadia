@@ -130,8 +130,10 @@ class MediaService:
         return asset
 
     async def access_url(
-        self, asset_id: uuid.UUID, owner_user_id: uuid.UUID
+        self, asset_id: uuid.UUID | str, owner_user_id: uuid.UUID
     ) -> str:
+        if isinstance(asset_id, str):
+            asset_id = uuid.UUID(asset_id)
         asset = await self.get_owned_asset(asset_id, owner_user_id)
         return await self.storage.presign_get(
             asset.bucket, asset.object_key, self.access_ttl_seconds

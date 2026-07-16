@@ -30,6 +30,7 @@ async def ensure_schema() -> None:
             "main_image_source": "VARCHAR(20)",
             "attributes": "JSONB NOT NULL DEFAULT '{}'::jsonb",
             "category_template_version": "INTEGER NOT NULL DEFAULT 1",
+            "main_image_asset_id": "UUID REFERENCES media_assets(id) ON DELETE SET NULL",
         }
         for column, definition in legacy_columns.items():
             await connection.execute(text(
@@ -45,6 +46,18 @@ async def ensure_schema() -> None:
                 "ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS "
                 f"{column} {definition}"
             ))
+        await connection.execute(text(
+            "ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS "
+            "result_video_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS "
+            "asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE main_image_candidates ADD COLUMN IF NOT EXISTS "
+            "asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
+        ))
 
 
 async def get_async_session() -> AsyncSession:

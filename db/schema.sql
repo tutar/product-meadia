@@ -53,7 +53,7 @@ CREATE TABLE products (
     selling_points JSONB NOT NULL DEFAULT '[]',
     scenarios JSONB NOT NULL DEFAULT '[]',
     main_image_url TEXT NOT NULL,
-    main_image_source VARCHAR(20) NOT NULL CHECK (main_image_source IN ('upload', 'ai')),
+    main_image_source VARCHAR(20) NOT NULL CHECK (main_image_source IN ('upload', 'ai', 'asset')),
     attributes JSONB NOT NULL DEFAULT '{}',
     category_template_version INTEGER NOT NULL CHECK (category_template_version > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -63,7 +63,7 @@ CREATE TABLE products (
 CREATE TABLE main_image_candidates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    image_url TEXT NOT NULL,
+    image_url TEXT NOT NULL DEFAULT '',
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -130,7 +130,7 @@ CREATE TABLE media_assets (
     size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
     checksum VARCHAR(64) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'available'
-        CHECK (status IN ('available', 'unavailable', 'superseded', 'pending_delete')),
+        CHECK (status IN ('available', 'unavailable', 'superseded', 'pending_delete', 'deleted')),
     source_provider VARCHAR(100),
     idempotency_key VARCHAR(255),
     superseded_at TIMESTAMPTZ,
@@ -138,6 +138,9 @@ CREATE TABLE media_assets (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE main_image_candidates
+    ADD COLUMN IF NOT EXISTS asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;
 
 CREATE UNIQUE INDEX uq_media_assets_owner_idempotency
     ON media_assets(owner_user_id, idempotency_key)

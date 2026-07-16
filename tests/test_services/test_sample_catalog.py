@@ -14,7 +14,7 @@ def test_samples_are_versioned_stable_and_cover_three_domains():
     assert {item["key"] for item in SAMPLE_CATEGORIES} >= {
         "sample-perfume", "sample-electronics", "sample-food"
     }
-    assert all(item["products"][0]["main_image_url"] for item in SAMPLE_CATEGORIES)
+    assert all("main_image_url" not in item["products"][0] for item in SAMPLE_CATEGORIES)
 
 
 @pytest.mark.asyncio

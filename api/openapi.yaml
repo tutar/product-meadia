@@ -257,6 +257,32 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /products/main-image/upload:
+    post:
+      summary: 上传商品主图并创建私有 Media Asset
+      operationId: uploadProductMainImage
+      tags: [Products]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: 已创建的主图资产
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [asset_id, url]
+                properties:
+                  asset_id: { type: string, format: uuid }
+                  url: { type: string, format: uri }
+
   /initialization-status:
     get:
       summary: 查询当前用户样例目录初始化状态
@@ -684,15 +710,14 @@ components:
         category_template_version: { type: integer, minimum: 1 }
 
     ProductCreate:
-      description: 不接受 user_id；上传 URL/来源或已确认 AI 候选图二选一
+      description: 不接受 user_id 或媒体 URL；已上传资产或已确认 AI 候选图二选一
       allOf:
         - $ref: "#/components/schemas/ProductDraft"
         - oneOf:
             - type: object
-              required: [main_image_url, main_image_source]
+              required: [main_image_asset_id]
               properties:
-                main_image_url: { type: string, format: uri }
-                main_image_source: { type: string, enum: [upload] }
+                main_image_asset_id: { type: string, format: uuid }
             - type: object
               required: [main_image_candidate_id]
               properties:
@@ -702,12 +727,12 @@ components:
       allOf:
         - $ref: "#/components/schemas/ProductDraft"
         - type: object
-          required: [id, main_image_url, main_image_source, created_at, updated_at]
+          required: [id, main_image_asset_id, main_image_source, created_at, updated_at]
           properties:
             id: { type: string, format: uuid }
             category: { $ref: "#/components/schemas/Category" }
-            main_image_url: { type: string, format: uri }
-            main_image_source: { type: string, enum: [upload, ai] }
+            main_image_asset_id: { type: string, format: uuid }
+            main_image_source: { type: string, enum: [asset, ai] }
             task_count: { type: integer, minimum: 0 }
             created_at: { type: string, format: date-time }
             updated_at: { type: string, format: date-time }

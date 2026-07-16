@@ -1,4 +1,4 @@
-from fastapi import APIRouter,Depends,HTTPException
+from fastapi import APIRouter,Depends,HTTPException,UploadFile,File
 from sqlalchemy import select,func
 from sqlalchemy.orm import selectinload
 from src.database import get_async_session
@@ -9,6 +9,9 @@ from src.schemas.product import ProductCreate,ProductUpdate,ProductResponse,Pagi
 from src.services.category_service import get_owned_category
 from src.services.product_validation import normalize_attributes,AttributeValidationError
 from src.services.main_image_candidates import create_candidate,consume_candidate
+from src.api.media import get_media_service
+from src.services.media_service import MediaService
+from src.tasks.video_tasks import _fetch_provider_media
 router=APIRouter(prefix='/products',tags=['products'])
 
 async def prepare(db,user,body):
@@ -21,12 +24,23 @@ async def prepare(db,user,body):
 
 @router.post('/main-image/generate',response_model=MainImageCandidateResponse,status_code=201)
 async def generate(body:ProductDraft,db=Depends(get_async_session),user=Depends(get_current_user)):
- await prepare(db,user,body); c=await create_candidate(db,user.id,body); await db.commit(); return {'candidate_id':c.id,'preview_url':c.image_url,'expires_at':c.expires_at}
+ await prepare(db,user,body)
+ media=get_media_service(db)
+ c=await create_candidate(db,user.id,body,media,_fetch_provider_media)
+ await db.commit()
+ return {'candidate_id':c.id,'preview_url':await media.access_url(c.asset_id,user.id),'expires_at':c.expires_at}
+
+@router.post('/main-image/upload',status_code=201)
+async def upload_main_image(file:UploadFile=File(...),db=Depends(get_async_session),user=Depends(get_current_user),media:MediaService=Depends(get_media_service)):
+ data=await file.read()
+ asset=await media.create_asset(owner_user_id=user.id,category='product_image',data=data,content_type=file.content_type or 'application/octet-stream',filename=file.filename or 'upload.bin')
+ await db.commit()
+ return {'asset_id':asset.id,'url':await media.access_url(asset.id,user.id)}
 
 @router.post('',response_model=ProductResponse,status_code=201)
 async def create(body:ProductCreate,db=Depends(get_async_session),user=Depends(get_current_user)):
-    attrs=await prepare(db,user,body); source='upload'; url=body.main_image_url
-    if body.main_image_asset_id and (body.main_image_url or body.main_image_candidate_id):
+    attrs=await prepare(db,user,body); source='asset'; url=''
+    if body.main_image_asset_id and body.main_image_candidate_id:
         raise HTTPException(422,'choose asset, upload or candidate')
     if body.main_image_asset_id:
         asset = (await db.execute(select(MediaAsset).where(
@@ -37,14 +51,13 @@ async def create(body:ProductCreate,db=Depends(get_async_session),user=Depends(g
         ))).scalar_one_or_none()
         if not asset: raise HTTPException(404,'Main image asset not found')
         url,source = '', 'asset'
-    if body.main_image_candidate_id and (body.main_image_url or body.main_image_source or body.main_image_asset_id): raise HTTPException(422,'choose upload or candidate')
-    if body.main_image_url and body.main_image_source != 'upload': raise HTTPException(422,'main_image_source upload required')
+    if body.main_image_candidate_id and body.main_image_asset_id: raise HTTPException(422,'choose upload or candidate')
     if body.main_image_candidate_id:
         c=await consume_candidate(db,user.id,body.main_image_candidate_id)
         if not c: raise HTTPException(422,'Invalid main image candidate')
-        url,source=c.image_url,'ai'
+        body.main_image_asset_id=c.asset_id; url,source='','ai'
     if not url and not body.main_image_asset_id: raise HTTPException(422,'Main image required')
-    data=body.model_dump(exclude={'main_image_candidate_id','main_image_url','main_image_source'}); data['attributes']=attrs
+    data=body.model_dump(exclude={'main_image_candidate_id'}); data['attributes']=attrs
     p=Product(user_id=user.id,main_image_url=url,main_image_source=source,**data); db.add(p); await db.commit(); await db.refresh(p); return p
 
 @router.get('',response_model=PaginatedProducts)
@@ -70,16 +83,13 @@ async def update(id,body:ProductUpdate,db=Depends(get_async_session),user=Depend
   asset=(await db.execute(select(MediaAsset).where(MediaAsset.id==body.main_image_asset_id,MediaAsset.owner_user_id==user.id,MediaAsset.status=='available',MediaAsset.category=='product_image'))).scalar_one_or_none()
   if not asset: raise HTTPException(404,'Main image asset not found')
   p.main_image_asset_id=asset.id; p.main_image_url=''; p.main_image_source='asset'
- data=body.model_dump(exclude={'main_image_candidate_id','main_image_url','main_image_source'})
+ data=body.model_dump(exclude={'main_image_candidate_id','main_image_asset_id'})
  for k,v in data.items(): setattr(p,k,v)
- if body.main_image_candidate_id and (body.main_image_url or body.main_image_source or body.main_image_asset_id): raise HTTPException(422,'choose upload or candidate')
- if body.main_image_url and body.main_image_source != 'upload': raise HTTPException(422,'main_image_source upload required')
+ if body.main_image_candidate_id and body.main_image_asset_id: raise HTTPException(422,'choose upload or candidate')
  if body.main_image_candidate_id:
   c=await consume_candidate(db,user.id,body.main_image_candidate_id)
   if not c: raise HTTPException(422,'Invalid main image candidate')
-  p.main_image_url,p.main_image_source=c.image_url,'ai'
- elif body.main_image_url:
-  p.main_image_url,p.main_image_source=body.main_image_url,'upload'
+  p.main_image_asset_id,p.main_image_url,p.main_image_source=c.asset_id,'','ai'
  p.attributes=attrs; await db.commit(); await db.refresh(p); return p
 @router.delete('/{id}',status_code=204)
 async def delete(id,db=Depends(get_async_session),user=Depends(get_current_user)):
