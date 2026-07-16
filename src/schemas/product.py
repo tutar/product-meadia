@@ -30,4 +30,5 @@ class PaginatedProducts(BaseModel):
 
 class MainImageCandidateResponse(BaseModel):
     candidate_id: UUID
-    image_url: str
+    preview_url: str
+    expires_at: object
