@@ -25,13 +25,14 @@ async def generate(body:ProductDraft,db=Depends(get_async_session),user=Depends(
 @router.post('',response_model=ProductResponse,status_code=201)
 async def create(body:ProductCreate,db=Depends(get_async_session),user=Depends(get_current_user)):
  attrs=await prepare(db,user,body); source='upload'; url=body.main_image_url
- if body.main_image_candidate_id and body.main_image_url: raise HTTPException(422,'choose upload or candidate')
+ if body.main_image_candidate_id and (body.main_image_url or body.main_image_source): raise HTTPException(422,'choose upload or candidate')
+ if body.main_image_url and body.main_image_source != 'upload': raise HTTPException(422,'main_image_source upload required')
  if body.main_image_candidate_id:
   c=await consume_candidate(db,user.id,body.main_image_candidate_id)
   if not c: raise HTTPException(422,'Invalid main image candidate')
   url,source=c.image_url,'ai'
  if not url: raise HTTPException(422,'Main image required')
- data=body.model_dump(exclude={'main_image_candidate_id','main_image_url'}); data['attributes']=attrs
+ data=body.model_dump(exclude={'main_image_candidate_id','main_image_url','main_image_source'}); data['attributes']=attrs
  p=Product(user_id=user.id,main_image_url=url,main_image_source=source,**data); db.add(p); await db.commit(); await db.refresh(p); return p
 
 @router.get('',response_model=PaginatedProducts)
@@ -53,9 +54,10 @@ async def get(id,db=Depends(get_async_session),user=Depends(get_current_user)):r
 @router.put('/{id}',response_model=ProductResponse)
 async def update(id,body:ProductUpdate,db=Depends(get_async_session),user=Depends(get_current_user)):
  p=await owned(db,user,id); attrs=await prepare(db,user,body)
- data=body.model_dump(exclude={'main_image_candidate_id','main_image_url'})
+ data=body.model_dump(exclude={'main_image_candidate_id','main_image_url','main_image_source'})
  for k,v in data.items(): setattr(p,k,v)
- if body.main_image_candidate_id and body.main_image_url: raise HTTPException(422,'choose upload or candidate')
+ if body.main_image_candidate_id and (body.main_image_url or body.main_image_source): raise HTTPException(422,'choose upload or candidate')
+ if body.main_image_url and body.main_image_source != 'upload': raise HTTPException(422,'main_image_source upload required')
  if body.main_image_candidate_id:
   c=await consume_candidate(db,user.id,body.main_image_candidate_id)
   if not c: raise HTTPException(422,'Invalid main image candidate')

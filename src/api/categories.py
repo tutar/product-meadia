@@ -16,7 +16,7 @@ router = APIRouter(prefix="/categories", tags=["categories"])
 
 def _is_name_conflict(exc: IntegrityError) -> bool:
     orig = getattr(exc, "orig", None)
-    return getattr(orig, "constraint_name", None) in {"categories_user_id_name_key", "uq_categories_user_id_name"} or getattr(orig, "pgcode", None) == "23505"
+    return getattr(orig, "constraint_name", None) in {"categories_user_id_name_key", "uq_categories_user_id_name"}
 
 @router.post("", response_model=CategoryOut, status_code=201)
 async def create(body: CategoryCreate, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):

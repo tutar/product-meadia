@@ -72,7 +72,7 @@ def _db():
 @pytest.mark.asyncio
 async def test_create_upload_commits_owned_product(monkeypatch):
     db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={'color':'red'}))
-    result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_url='upload.jpg'),db,user)
+    result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_url='upload.jpg',main_image_source='upload'),db,user)
     assert result.user_id==user.id and result.main_image_source=='upload'; db.add.assert_called_once(); db.commit.assert_awaited_once()
 
 @pytest.mark.asyncio

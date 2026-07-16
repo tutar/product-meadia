@@ -1,5 +1,6 @@
 from uuid import UUID
 from pydantic import BaseModel, Field
+from typing import Literal
 
 class ProductDraft(BaseModel):
     category_id: UUID
@@ -12,6 +13,7 @@ class ProductDraft(BaseModel):
 
 class ProductCreate(ProductDraft):
     main_image_url: str | None = None
+    main_image_source: Literal["upload"] | None = None
     main_image_candidate_id: UUID | None = None
 
 class ProductUpdate(ProductCreate): pass
