@@ -350,3 +350,11 @@ tr:hover td { background: rgba(255,255,255,0.02); }
   background: linear-gradient(90deg, transparent, var(--accent), transparent);
   opacity: 0.3;
 }
+
+.categories-page { max-width: 1100px; margin: 0 auto; }
+.category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 24px; }
+.category-card, .category-editor { padding: 24px; }
+.category-editor { margin-top: 24px; display: grid; gap: 16px; }
+.category-editor label { display: grid; gap: 6px; }
+.attribute-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr auto auto; gap: 8px; align-items: end; }
+@media (max-width: 760px) { .attribute-row { grid-template-columns: 1fr; } }
