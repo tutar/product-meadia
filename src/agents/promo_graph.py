@@ -7,13 +7,13 @@ from src.tools.tts import generate_tts
 from src.tools.render import render_hyperframes
 from src.tools.llm_tools import llm_chat
 from src.tasks.execution import tracked_node
+from src.services.product_context import format_product_context
 
-SCRIPT_SYSTEM = """You are a perfume video scriptwriter. Given a perfume product, write:
-1. A video script (narration text) with structure: opening → middle notes → base notes → scenarios → CTA
+SCRIPT_SYSTEM = """You are a product video scriptwriter. Given a product context, write:
+1. A video script with structure: hook → need or scene → selling points → attribute evidence → CTA
 2. Voiceover text (same as script, cleaned for TTS)
-3. {image_count} image generation prompts. Each prompt describes a cinematic perfume-ad visual scene.
-   Match the script's narrative flow. Style: luxury, cinematic lighting, product-focused.
-   IMPORTANT: Keep prompts clean, safe-for-work, and family-friendly. Focus on the product, scenery, lighting, and textures. Avoid any depiction of people's bodies, skin, or suggestive imagery. Use still-life, close-ups of the bottle, nature scenes with the product, or abstract elegant compositions.
+3. {image_count} category-appropriate cinematic image prompts matching the narrative flow.
+   Keep prompts safe, product-focused, and grounded in supplied attributes and use scenes.
 
 Return ONLY JSON: {{"script": "...", "voiceover": "...", "image_prompts": ["prompt1", ...]}}"""
 
@@ -41,13 +41,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("script_content") and state.get("image_prompts"):
             return {}
         info = state["product_info"]
-        prompt = (
-            f"Product: {info['name']}\\n"
-            f"Top notes: {info.get('top_note','')}\\n"
-            f"Middle notes: {info.get('middle_note','')}\\n"
-            f"Base notes: {info.get('base_note','')}\\n"
-            f"Scenarios: {info.get('scenarios',[])}"
-        )
+        prompt = format_product_context(info)
         system = SCRIPT_SYSTEM.format(image_count=state["image_count"])
         result = await llm_chat("scriptwriter", system, prompt, temperature=0.7)
         data = json.loads(result)
@@ -88,7 +82,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         clips = []
         for url in approved_urls:
             clip_url = await generate_video(
-                prompt="Cinematic camera movement, smooth panning, luxury perfume advertisement style",
+                prompt=f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}",
                 image_urls=[url],
             )
             clips.append(clip_url)

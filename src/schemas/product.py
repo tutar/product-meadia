@@ -1,19 +1,36 @@
-from pydantic import BaseModel
 from uuid import UUID
-from datetime import datetime
+from pydantic import BaseModel, Field
+from typing import Literal
 
-
-class ProductCreate(BaseModel):
-    name: str
-    top_note: str | None = None
-    middle_note: str | None = None
-    base_note: str | None = None
+class ProductDraft(BaseModel):
+    category_id: UUID
+    category_template_version: int
+    name: str = Field(min_length=1,max_length=255)
+    description: str | None = None
+    selling_points: list[str] = []
     scenarios: list[str] = []
+    attributes: dict[str, object] = {}
+
+class ProductCreate(ProductDraft):
     main_image_url: str | None = None
+    main_image_source: Literal["upload"] | None = None
+    main_image_candidate_id: UUID | None = None
 
+class ProductUpdate(ProductCreate): pass
 
-class ProductResponse(ProductCreate):
+class ProductResponse(ProductDraft):
     id: UUID
-    created_at: datetime
+    main_image_url: str
+    main_image_source: str
+    model_config={'from_attributes':True}
 
-    model_config = {"from_attributes": True}
+class PaginatedProducts(BaseModel):
+    items: list[ProductResponse]
+    total: int
+    page: int
+    page_size: int
+
+class MainImageCandidateResponse(BaseModel):
+    candidate_id: UUID
+    preview_url: str
+    expires_at: object

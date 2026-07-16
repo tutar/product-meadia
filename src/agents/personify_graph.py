@@ -7,23 +7,19 @@ from src.tools.lipsync import run_lipsync
 from src.tools.render import render_hyperframes
 from src.tools.llm_tools import llm_chat
 from src.tasks.execution import tracked_node
+from src.services.product_context import format_product_context
 
-CHARACTER_PROMPT = """Design a personified character for this perfume:
-Product: {product_name}
-Top notes: {top_note}
-Middle notes: {middle_note}
-Base notes: {base_note}
-Scenarios: {scenarios}
+CHARACTER_PROMPT = """Design a personified character for this product:
+{product_context}
 
 Describe the character as an image generation prompt: age, gender, clothing style,
-expression, setting. The character should visually embody the perfume's personality.
+expression, setting. Derive appearance from category, selling points, attributes, and use scenes.
 Output ONLY the image prompt, no commentary."""
 
-SCRIPT_PROMPT = """You are this perfume speaking in first person. Introduce yourself:
-"I am {product_name}. My top notes are {top_note}, middle notes {middle_note},
-base notes {base_note}. I'm perfect for {scenarios}..."
+SCRIPT_PROMPT = """You are this product speaking in first person.
+{product_context}
 
-Write a 30-second first-person monologue.
+Write a 30-second category-appropriate first-person monologue grounded in the context.
 Return ONLY JSON: {{"script": "...", "voiceover": "..."}}"""
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -51,13 +47,7 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
         if state.get("character_image_url"):
             return {"character_image_url": state["character_image_url"]}
         info = state["product_info"]
-        prompt = CHARACTER_PROMPT.format(
-            product_name=info["name"],
-            top_note=info.get("top_note", ""),
-            middle_note=info.get("middle_note", ""),
-            base_note=info.get("base_note", ""),
-            scenarios=", ".join(info.get("scenarios", [])),
-        )
+        prompt = CHARACTER_PROMPT.format(product_context=format_product_context(info))
         result = await llm_chat("scriptwriter", "You are a character designer.", prompt)
         image_url = await generate_image(result)
         return {"character_image_url": image_url}
@@ -69,14 +59,8 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
         if state.get("script_content"):
             return {}
         info = state["product_info"]
-        prompt = SCRIPT_PROMPT.format(
-            product_name=info["name"],
-            top_note=info.get("top_note", ""),
-            middle_note=info.get("middle_note", ""),
-            base_note=info.get("base_note", ""),
-            scenarios=", ".join(info.get("scenarios", [])),
-        )
-        result = await llm_chat("scriptwriter", "You are a perfume speaking in first person.", prompt)
+        prompt = SCRIPT_PROMPT.format(product_context=format_product_context(info))
+        result = await llm_chat("scriptwriter", "You are a product speaking in first person.", prompt)
         data = json.loads(result)
         return {"script_content": data["script"], "voiceover_text": data["voiceover"]}
 

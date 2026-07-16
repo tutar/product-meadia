@@ -1,10 +1,9 @@
 import asyncio
-import json
+import datetime as _dt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from src.config import settings
 from src.tasks.celery_app import celery_app
-from src.models.product import Product
 from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
@@ -67,17 +66,14 @@ async def _async_run(task_id: str, celery_task_id: str):
         async with SessionLocal() as db:
             result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
             task = result.scalar_one()
-            product_result = await db.execute(select(Product).where(Product.id == task.product_id))
-            product = product_result.scalar_one()
+            snapshot = task.product_snapshot
+            if snapshot.get("version") != 1:
+                raise ValueError("Invalid product snapshot")
 
             initial_state: VideoAgentState = {
                 "task_id": str(task.id),
-                "product_id": str(product.id),
-                "product_info": {
-                    "name": product.name, "top_note": product.top_note,
-                    "middle_note": product.middle_note, "base_note": product.base_note,
-                    "scenarios": product.scenarios, "main_image_url": product.main_image_url,
-                },
+                "product_id": str(task.product_id or snapshot["id"]),
+                "product_info": snapshot,
                 "task_type": task.type,
                 "image_count": task.image_count,
                 "viral_url": "",

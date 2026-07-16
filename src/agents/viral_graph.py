@@ -8,12 +8,12 @@ from src.tools.render import render_hyperframes
 from src.tools.transcription import transcribe_audio
 from src.tools.llm_tools import llm_chat, analyze_video_structure
 from src.tasks.execution import tracked_node
+from src.services.product_context import format_product_context
 
-PROMPT = """Rewrite the following video script for a perfume product.
-Replace the original product mentions with this product: {product_name}.
+PROMPT = """Adapt the reference video structure for the supplied product.
 Keep the same structure, pacing, and emotional tone.
 Original script: {original_script}
-Product info: {product_info}
+Product context: {product_context}
 
 Return ONLY JSON: {{"script": "...", "voiceover": "...", "image_prompts": ["..."]}}"""
 
@@ -51,9 +51,8 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             return {}
         info = state["product_info"]
         user_prompt = PROMPT.format(
-            product_name=info["name"],
             original_script=str(state.get("viral_analysis", {})),
-            product_info=json.dumps(info),
+            product_context=format_product_context(info),
         )
         result = await llm_chat("scriptwriter", "You are a video script adapter.", user_prompt)
         data = json.loads(result)
@@ -84,7 +83,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             for img in state.get("generated_images", []):
                 if img.get("status") == "approved":
                     clip = await generate_video(
-                        prompt="Smooth cinematic movement, luxury product showcase",
+                        prompt=f"Smooth cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}",
                         image_urls=[img["image_url"]],
                     )
                     clips.append(clip)

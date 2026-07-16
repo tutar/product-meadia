@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import api from "../api/client";
 
+interface TaskItem { id: string; type: string; status: string; created_at: string; product_snapshot?: { name?: string; main_image_url?: string; category?: { name?: string } } }
+
 function statusBadge(status: string) {
   const cls = status === "done" ? "badge-done" : status === "failed" ? "badge-failed" : status.includes("review") ? "badge-active" : "badge-pending";
   return <span className={`badge ${cls}`}>{status.replace(/_/g, " ")}</span>;
@@ -10,7 +12,7 @@ function statusBadge(status: string) {
 
 export default function DashboardPage() {
   const { t } = useTranslation();
-  const [tasks, setTasks] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
 
   useEffect(() => {
     api.get("/tasks").then(r => setTasks(r.data.items)).catch(() => {});
@@ -39,9 +41,9 @@ export default function DashboardPage() {
               <tr><th>{t("dashboard.type")}</th><th>{t("dashboard.status")}</th><th>{t("dashboard.created")}</th><th></th></tr>
             </thead>
             <tbody>
-              {tasks.map((task: any) => (
+              {tasks.map(task => (
                 <tr key={task.id}>
-                  <td><strong>{String(t(`types.${task.type}`, task.type))}</strong></td>
+                  <td><div className="flex items-center gap-2">{task.product_snapshot?.main_image_url && <img src={task.product_snapshot.main_image_url} alt="" width="40" height="40" />}<span><strong>{task.product_snapshot?.name ?? String(t(`types.${task.type}`, task.type))}</strong>{task.product_snapshot?.category?.name && <small> · {task.product_snapshot.category.name}</small>}</span></div></td>
                   <td>{statusBadge(task.status)}</td>
                   <td className="text-secondary text-sm">{new Date(task.created_at).toLocaleDateString(t("auth.signInButton") === "登录" ? "zh-CN" : "en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
                   <td><Link to={`/tasks/${task.id}`} className="btn btn-ghost btn-sm">{t("dashboard.view")}</Link></td>

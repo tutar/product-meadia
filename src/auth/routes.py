@@ -10,9 +10,19 @@ from src.auth.jwt import create_access_token, create_refresh_token, decode_token
 from src.auth.deps import get_current_user
 from src.config import settings
 from jose import JWTError
+from src.services.outbox import record_event
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+async def persist_registered_user(db: AsyncSession, user: User) -> User:
+    db.add(user)
+    await db.flush()
+    await record_event(db, "user.registered", user.id, {"user_id": str(user.id)})
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -25,9 +35,7 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_async_sessio
         hashed_password=pwd_context.hash(body.password),
         role="customer",
     )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    await persist_registered_user(db, user)
     return user
 
 
@@ -66,9 +74,7 @@ async def token(body: TokenRequest, db: AsyncSession = Depends(get_async_session
         user = result.scalar_one_or_none()
         if not user:
             user = User(email=email, google_id=google_id, role="customer")
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
+            await persist_registered_user(db, user)
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported grant_type")
 
