@@ -17,8 +17,18 @@ from src.schemas.task import (
 )
 from src.auth.deps import get_current_user
 from src.tasks.execution import stage_for_node
+from src.services.product_context import build_product_snapshot
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+async def owned_task(db, user, task_id):
+    task = (await db.execute(select(VideoTask).where(
+        VideoTask.id == task_id, VideoTask.user_id == user.id
+    ))).scalar_one_or_none()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -27,15 +37,18 @@ async def create_task(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
-    product_result = await db.execute(select(Product).where(Product.id == body.product_id))
-    if not product_result.scalar_one_or_none():
+    product_result = await db.execute(select(Product).where(Product.id == body.product_id, Product.user_id == user.id).options(selectinload(Product.category)))
+    product = product_result.scalar_one_or_none()
+    if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
     if body.type == "viral" and not body.viral_url:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="viral_url required for viral type")
 
     task = VideoTask(
+        user_id=user.id,
         product_id=body.product_id,
+        product_snapshot=build_product_snapshot(product, product.category),
         type=body.type,
         image_count=body.image_count,
         status="pending",
@@ -57,7 +70,7 @@ async def list_tasks(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
-    query = select(VideoTask).options(selectinload(VideoTask.script), selectinload(VideoTask.images))
+    query = select(VideoTask).where(VideoTask.user_id == user.id).options(selectinload(VideoTask.script), selectinload(VideoTask.images))
     if product_id:
         query = query.where(VideoTask.product_id == product_id)
     if type:
@@ -68,7 +81,7 @@ async def list_tasks(
     offset = (page - 1) * page_size
     result = await db.execute(query.offset(offset).limit(page_size).order_by(VideoTask.created_at.desc()))
     items = result.scalars().all()
-    total_result = await db.execute(select(func.count(VideoTask.id)))
+    total_result = await db.execute(select(func.count(VideoTask.id)).where(VideoTask.user_id == user.id))
     return {"items": items, "total": total_result.scalar()}
 
 
@@ -78,7 +91,7 @@ async def get_task(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
+    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id, VideoTask.user_id == user.id))
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -91,6 +104,7 @@ async def get_script(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
+    await owned_task(db, user, task_id)
     result = await db.execute(select(Script).where(Script.task_id == task_id))
     script = result.scalar_one_or_none()
     if not script:
@@ -105,6 +119,7 @@ async def update_script(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
+    await owned_task(db, user, task_id)
     result = await db.execute(select(Script).where(Script.task_id == task_id))
     script = result.scalar_one_or_none()
     if not script:
@@ -135,6 +150,7 @@ async def list_images(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
+    await owned_task(db, user, task_id)
     result = await db.execute(
         select(GeneratedImage).where(GeneratedImage.task_id == task_id).order_by(GeneratedImage.sort_order)
     )
@@ -149,6 +165,7 @@ async def review_image(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
+    await owned_task(db, user, task_id)
     result = await db.execute(
         select(GeneratedImage).where(GeneratedImage.id == image_id, GeneratedImage.task_id == task_id)
     )
@@ -183,6 +200,7 @@ async def regenerate_image(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
+    await owned_task(db, user, task_id)
     result = await db.execute(
         select(GeneratedImage).where(GeneratedImage.id == image_id, GeneratedImage.task_id == task_id)
     )
@@ -202,10 +220,7 @@ async def resume_task(
     user: User = Depends(get_current_user),
 ):
     """Manually resume/start a task — dispatches the graph in background."""
-    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id).with_for_update())
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = await owned_task(db, user, task_id)
     if task.status == "done":
         raise HTTPException(status_code=400, detail="Task already done")
     if task.status not in ("pending", "failed"):
@@ -252,7 +267,7 @@ async def download_video(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
+    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id, VideoTask.user_id == user.id))
     task = result.scalar_one_or_none()
     if not task or task.status != "done":
         raise HTTPException(status_code=404, detail="Video not ready")

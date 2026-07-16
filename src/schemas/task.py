@@ -59,7 +59,8 @@ class ViralAnalysisResponse(BaseModel):
 
 class TaskResponse(BaseModel):
     id: UUID
-    product_id: UUID
+    product_id: UUID | None
+    product_snapshot: dict
     type: str
     status: str
     current_step: str | None
