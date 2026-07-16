@@ -31,6 +31,27 @@ def test_named_behaviors_dynamic_attribute_and_template_conflict():
     with pytest.raises(AttributeValidationError): normalize_attributes([D()], {'color':'blue'})
 
 @pytest.mark.asyncio
+async def test_owned_product_route_returns_scoped_product():
+    from src.api.products import owned
+    owner, product_id = uuid4(), uuid4()
+    class Result:
+        def scalar_one_or_none(self): return type('P', (), {'id': product_id, 'user_id': owner})()
+    db=type('DB',(),{'execute':AsyncMock(return_value=Result())})()
+    product = await owned(db, owner, product_id)
+    assert product.id == product_id
+
+@pytest.mark.asyncio
+async def test_owned_product_route_rejects_missing_scoped_product():
+    from fastapi import HTTPException
+    from src.api.products import owned
+    class Result:
+        def scalar_one_or_none(self): return None
+    db=type('DB',(),{'execute':AsyncMock(return_value=Result())})()
+    with pytest.raises(HTTPException) as exc:
+        await owned(db, uuid4(), uuid4())
+    assert exc.value.status_code == 404
+
+@pytest.mark.asyncio
 async def test_named_behaviors_candidate_expired_single_use_and_ownership():
     from src.services.main_image_candidates import consume_candidate
     db=type('DB',(),{'execute':AsyncMock()})()
