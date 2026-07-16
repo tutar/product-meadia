@@ -7,6 +7,7 @@
     "dashboard": "Dashboard",
     "newVideo": "New Video",
     "categories": "Categories",
+    "products": "Products",
     "logout": "Logout"
   },
   "catalog": {"title":"Categories","subtitle":"Manage reusable product attribute templates.","new":"New category","edit":"Edit","delete":"Delete","name":"Name","description":"Description","key":"Key","label":"Label","type":"Type","options":"Options","required":"Required","up":"Move up","down":"Move down","remove":"Remove attribute","addAttribute":"Add attribute","save":"Save","products":"{{count}} products","errors":{"load":"Unable to load categories","save":"Could not save category","conflict":"Template changed; reload before saving."}},

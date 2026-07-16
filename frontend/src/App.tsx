@@ -8,6 +8,8 @@ import DashboardPage from "./pages/DashboardPage";
 import CreateTaskPage from "./pages/CreateTaskPage";
 import TaskDetailPage from "./pages/TaskDetailPage";
 import CategoriesPage from "./pages/CategoriesPage";
+import ProductsPage from "./pages/ProductsPage";
+import ProductFormPage from "./pages/ProductFormPage";
 import "./styles/design.css";
 
 function LangSwitcher() {
@@ -35,6 +37,7 @@ function AppHeader() {
         <Link to="/dashboard" className={isActive("/dashboard")}>{t("nav.dashboard")}</Link>
         <Link to="/tasks/new" className={isActive("/tasks/new")}>{t("nav.newVideo")}</Link>
         <Link to="/categories" className={isActive("/categories")}>{t("nav.categories")}</Link>
+        <Link to="/products" className={isActive("/products")}>{t("nav.products")}</Link>
         <LangSwitcher />
         <button onClick={logout} className="btn btn-ghost btn-sm">{t("nav.logout")}</button>
       </nav>
@@ -76,6 +79,9 @@ function AppShell() {
           <Route path="/tasks/new" element={<CreateTaskPage />} />
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/categories" element={<CategoriesPage />} />
+          <Route path="/products" element={<ProductsPage />} />
+          <Route path="/products/new" element={<ProductFormPage />} />
+          <Route path="/products/:id/edit" element={<ProductFormPage />} />
           <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </main>

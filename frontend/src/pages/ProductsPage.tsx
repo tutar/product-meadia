@@ -1,0 +1,4 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { catalogApi, type Product } from "../api/catalog";
+export default function ProductsPage() { const [items, setItems] = useState<Product[]>([]); const [search, setSearch] = useState(""); const load=()=>void catalogApi.listProducts(search?{name:search}:undefined).then(r=>setItems(r.items)); useEffect(load,[]); return <section><div className="justify-between flex"><h1>Products</h1><Link className="btn btn-primary" to="/products/new">New product</Link></div><input className="input mt-4" aria-label="Search" value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&load()}/><div className="category-grid">{items.map(p=><article className="card category-card" key={p.id}><h2>{p.name}</h2><Link className="btn btn-ghost" to={`/products/${p.id}/edit`}>Edit</Link></article>)}</div></section> }

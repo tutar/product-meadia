@@ -7,6 +7,7 @@
     "dashboard": "工作台",
     "newVideo": "新建视频",
     "categories": "品类",
+    "products": "商品",
     "logout": "退出"
   },
   "catalog": {"title":"品类","subtitle":"管理可复用的商品属性模板。","new":"新建品类","edit":"编辑","delete":"删除","name":"名称","description":"描述","key":"键","label":"标签","type":"类型","options":"选项","required":"必填","up":"上移","down":"下移","remove":"删除属性","addAttribute":"添加属性","save":"保存","products":"{{count}} 个商品","errors":{"load":"无法加载品类","save":"保存失败","conflict":"模板已变更，请刷新后重试。"}},
