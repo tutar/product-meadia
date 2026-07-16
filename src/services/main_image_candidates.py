@@ -4,8 +4,16 @@ from src.models.main_image_candidate import MainImageCandidate
 from src.tools.image_gen import generate_image
 
 def build_main_image_prompt(draft):
-    parts=[draft.name, draft.description or '', *draft.selling_points, *draft.scenarios]
-    return 'Professional catalog product hero image. ' + '. '.join(x.strip() for x in parts if x and x.strip())
+    parts=[draft.name, draft.description or '', *draft.selling_points]
+    product_details = '. '.join(x.strip() for x in parts if x and x.strip())
+    return (
+        'Professional isolated e-commerce product packshot. '
+        'Show one single product as the clear primary subject, centered and large, '
+        'front-facing, fully visible, with realistic material and clean studio lighting. '
+        'Use a clean, minimal background with no props, no scenery, no flowers, no plants, '
+        'no people, no hands, no extra objects, no patterns, no text, and no watermark. '
+        f'Product details: {product_details}'
+    )
 
 async def create_candidate(db,user_id,draft):
     url=await generate_image(build_main_image_prompt(draft))

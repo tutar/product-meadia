@@ -8,6 +8,9 @@ def test_prompt_is_generic_and_uses_draft():
     d=ProductDraft(category_id=uuid4(),category_template_version=1,name='Cup',description='Ceramic',selling_points=['Durable'])
     p=build_main_image_prompt(d)
     assert 'Cup' in p and 'Ceramic' in p and 'perfume' not in p.lower()
+    assert "single product" in p.lower()
+    assert "clean, minimal background" in p.lower()
+    assert "no flowers" in p.lower()
 
 @pytest.mark.asyncio
 async def test_candidate_expires_in_24_hours():

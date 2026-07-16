@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from src.config import settings
 from src.models.base import Base
@@ -17,6 +18,24 @@ async def ensure_schema() -> None:
     """
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        # Development databases created before the catalog model was introduced
+        # can still contain the legacy fragrance-only products table.  `create_all`
+        # intentionally does not alter existing tables, so add the new nullable
+        # columns idempotently before the first catalog write.
+        legacy_columns = {
+            "user_id": "UUID",
+            "category_id": "UUID",
+            "description": "TEXT",
+            "selling_points": "JSONB NOT NULL DEFAULT '[]'::jsonb",
+            "main_image_source": "VARCHAR(20)",
+            "attributes": "JSONB NOT NULL DEFAULT '{}'::jsonb",
+            "category_template_version": "INTEGER NOT NULL DEFAULT 1",
+        }
+        for column, definition in legacy_columns.items():
+            await connection.execute(text(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS "
+                f"{column} {definition}"
+            ))
 
 
 async def get_async_session() -> AsyncSession:
