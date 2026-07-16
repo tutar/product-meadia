@@ -9,6 +9,7 @@ from src.api.categories import router as categories_router
 from src.api.tasks import router as tasks_router
 from src.api.initialization import router as initialization_router
 from src.ws.progress import progress_manager
+from src.database import ensure_schema
 
 # Langfuse v4 reads from env vars automatically
 os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.langfuse_public_key)
@@ -18,6 +19,7 @@ os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_host)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await ensure_schema()
     yield
 
 app = FastAPI(title="Perfume Video API", version="0.1.0", lifespan=lifespan)

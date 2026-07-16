@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from src.database import get_async_session
 from src.auth.deps import get_current_user
 from src.models.user import User
@@ -29,7 +30,12 @@ async def create(body: CategoryCreate, db: AsyncSession = Depends(get_async_sess
         if _is_name_conflict(exc):
             raise HTTPException(409, "name already exists")
         raise
-    return c
+    loaded = await db.execute(
+        select(Category)
+        .where(Category.id == c.id)
+        .options(selectinload(Category.attributes))
+    )
+    return loaded.scalar_one()
 
 @router.get('', response_model=list[CategoryOut])
 async def list_categories(db: AsyncSession=Depends(get_async_session), user: User=Depends(get_current_user)):

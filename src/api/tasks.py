@@ -17,6 +17,7 @@ from src.schemas.task import (
 )
 from src.auth.deps import get_current_user
 from src.tasks.execution import stage_for_node
+from src.tasks.recovery import is_stale_task
 from src.services.product_context import build_product_snapshot
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -223,7 +224,9 @@ async def resume_task(
     task = await owned_task(db, user, task_id)
     if task.status == "done":
         raise HTTPException(status_code=400, detail="Task already done")
-    if task.status not in ("pending", "failed"):
+    if task.status not in ("pending", "failed") and not is_stale_task(
+        task.status, task.updated_at
+    ):
         return {"status": "already_running", "task_status": task.status}
     # Allow retry from failed — resume from last completed step
     if task.status == "failed":
@@ -253,12 +256,17 @@ async def resume_task(
         task.status = "scripting"
         await db.commit()
 
-    # Run graph in background via asyncio task
-    import asyncio as _asyncio
-    from src.tasks.video_tasks import _async_run
-    _asyncio.create_task(_async_run(str(task_id), "manual-resume"))
+    # Always enqueue resumable work in Celery so an API restart cannot lose it.
+    from src.tasks.video_tasks import run_video_task
+    celery_result = run_video_task.delay(str(task_id))
+    task.celery_task_id = celery_result.id
+    await db.commit()
 
-    return {"status": "resumed", "task_status": task.status}
+    return {
+        "status": "resumed",
+        "task_status": task.status,
+        "celery_task_id": celery_result.id,
+    }
 
 
 @router.get("/{task_id}/video")

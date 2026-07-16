@@ -79,9 +79,12 @@ async def test_delete_referenced_returns_structured_conflict():
 async def test_create_category_success():
     db = AsyncMock(); db.commit.return_value = None
     db.add = Mock()
+    loaded = SimpleNamespace(name="Books", attributes=[])
+    db.execute.return_value = _Result(loaded)
     body = CategoryCreate(name="Books", attributes=[])
     result = await create_category(body, db, SimpleNamespace(id=uuid4()))
     assert result.name == "Books"; db.add.assert_called_once(); db.commit.assert_awaited_once()
+    assert db.execute.await_count >= 1
 
 @pytest.mark.asyncio
 async def test_list_categories_success():
