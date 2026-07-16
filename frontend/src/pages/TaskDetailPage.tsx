@@ -92,7 +92,6 @@ export default function TaskDetailPage() {
   const approveScript = async () => {
     setLoading(true);
     await api.put(`/tasks/${id}/script`, { approved: true, edited_content: editedContent });
-    await api.post(`/tasks/${id}/resume`);
     await fetchData();
     setLoading(false);
   };
@@ -100,7 +99,6 @@ export default function TaskDetailPage() {
   const approveCharacter = async () => {
     setLoading(true);
     await api.put(`/tasks/${id}/script`, { approved: true });
-    await api.post(`/tasks/${id}/resume`);
     await fetchData();
     setLoading(false);
   };
@@ -110,7 +108,6 @@ export default function TaskDetailPage() {
     const { data } = await api.get(`/tasks/${id}/images`);
     setImages(data);
     if (data.every((i: any) => i.status === "approved")) {
-      await api.post(`/tasks/${id}/resume`);
       await fetchData();
     }
   };
@@ -123,11 +120,20 @@ export default function TaskDetailPage() {
 
   if (!task) return <div className="empty-state"><p>{t("task.loading")}</p></div>;
 
-  const currentStepIdx = stepIndex(task.status);
+  const log = Array.isArray(task.progress_log) ? task.progress_log : [];
+  const effectiveStep = task.status === "failed" && task.current_step
+    ? task.current_step
+    : task.status;
+  const currentStepIdx = stepIndex(effectiveStep);
   const isProcessing = !FINAL_STATES.includes(task.status) && !REVIEW_STATES.includes(task.status);
   const isReview = REVIEW_STATES.includes(task.status);
   const statusLabel = String(t(`steps.${task.status}`, task.status.replace(/_/g, " ")));
   const titleKey = task.type === "promo" ? "task.promoTitle" : task.type === "viral" ? "task.viralTitle" : "task.personifyTitle";
+  const nodeLabel = (step: string) => t(`execution.steps.${step}`, step.replace(/_/g, " "));
+  const entrySummary = (entry: any) => {
+    const params = entry.params || {};
+    return String(t(`execution.summaries.${entry.step}`, entry.summary, params));
+  };
 
   return (
     <div>
@@ -160,15 +166,15 @@ export default function TaskDetailPage() {
         </div>
       )}
 
-      {!FINAL_STATES.includes(task.status) && (
-        <div className="steps mb-6">
-          {STEPS_DISPLAY.filter(s => !s.includes("review")).map((s, i) => {
-            const realIdx = STEPS_DISPLAY.indexOf(s);
-            const cls = realIdx < currentStepIdx ? "step done" : realIdx === currentStepIdx ? "step active" : "step";
-            return <div key={s} className={cls}>{i + 1}. {t(`steps.${s}`, s)}</div>;
-          })}
-        </div>
-      )}
+      <div className="steps mb-6">
+        {STEPS_DISPLAY.filter(s => !s.includes("review")).map((s, i) => {
+          const realIdx = STEPS_DISPLAY.indexOf(s);
+          const cls = realIdx < currentStepIdx || task.status === "done"
+            ? "step done"
+            : realIdx === currentStepIdx ? "step active" : "step";
+          return <div key={s} className={cls}>{i + 1}. {t(`steps.${s}`, s)}</div>;
+        })}
+      </div>
 
       {isReview && (
         <div className="card mb-6" style={{ background: "rgba(251,191,36,0.08)", borderColor: "var(--warning)" }}>
@@ -178,13 +184,13 @@ export default function TaskDetailPage() {
       )}
 
       {/* Progress log */}
-      {task.progress_log && task.progress_log.length > 0 && (
+      {log.length > 0 && (
         <details className="card mb-6" style={{ borderColor: "var(--border)" }}>
           <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.9rem", padding: 4 }}>
-            Execution Log ({task.progress_log.length} steps)
+            {t("execution.title")} ({log.length} {t("execution.stepsCount")})
           </summary>
           <div style={{ marginTop: 16 }}>
-            {task.progress_log.map((entry: any, i: number) => (
+            {log.map((entry: any, i: number) => (
               <div key={i} style={{
                 display: "flex", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)",
                 fontSize: "0.82rem", alignItems: "flex-start"
@@ -193,12 +199,12 @@ export default function TaskDetailPage() {
                   color: entry.status === "error" ? "var(--danger)" : "var(--success)",
                   fontWeight: 600, minWidth: 48
                 }}>
-                  {entry.status === "error" ? "FAIL" : "OK"}
+                  {entry.status === "error" ? t("execution.fail") : t("execution.ok")}
                 </span>
                 <div>
-                  <div style={{ color: "var(--text)", fontWeight: 500 }}>{entry.step}</div>
+                  <div style={{ color: "var(--text)", fontWeight: 500 }}>{nodeLabel(entry.step)}</div>
                   <div style={{ color: entry.status === "error" ? "var(--danger)" : "var(--text-secondary)" }}>
-                    {entry.summary}
+                    {entrySummary(entry)}
                   </div>
                   <div style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: 2 }}>
                     {new Date(entry.time).toLocaleTimeString()}

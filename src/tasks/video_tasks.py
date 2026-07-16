@@ -12,6 +12,7 @@ from src.models.viral_analysis import ViralAnalysis
 from src.agents.state import VideoAgentState
 from src.ws.progress import progress_manager
 from src.agents.checkpoint import get_checkpointer
+from src.tasks.execution import ARTIFACT_STATE_KEYS, NodeExecutionError, stage_for_node
 
 engine = create_async_engine(settings.database_url)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -59,6 +60,9 @@ def run_video_task(self, task_id: str):
 
 async def _async_run(task_id: str, celery_task_id: str):
     graph = None
+    progress_log: list = []
+    last_node = None
+    import datetime as _dt
     try:
         async with SessionLocal() as db:
             result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
@@ -111,6 +115,17 @@ async def _async_run(task_id: str, celery_task_id: str):
                     for img in db_images
                 ]
 
+            # Restore outputs of completed expensive nodes. These snapshots
+            # make retries resume at the failed small step instead of
+            # regenerating already-successful video/audio assets.
+            for entry in task.progress_log or []:
+                if entry.get("status") != "ok":
+                    continue
+                saved_state = entry.get("state") or {}
+                for key in ARTIFACT_STATE_KEYS:
+                    if key in saved_state:
+                        initial_state[key] = saved_state[key]
+
             # Set approval flags to skip completed wait nodes on retry
             if db_script and db_script.status == "approved":
                 initial_state["script_approved"] = True
@@ -151,14 +166,12 @@ async def _async_run(task_id: str, celery_task_id: str):
         except Exception:
             stream = graph.astream(initial_state, config)
 
-        import datetime as _dt
-        progress_log: list = []
         async with SessionLocal() as db:
             t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
-            t.progress_log = []
-            await db.commit()
-
-        last_node = None
+            # Keep the execution history across retries/resumes and append new
+            # entries as the graph advances. The UI polls this field while the
+            # task is running, so clearing it here made the log disappear.
+            progress_log = list(t.progress_log or [])
         async for event in stream:
             for node_name, node_output in event.items():
                 # Track last meaningful node for interrupt detection
@@ -199,10 +212,18 @@ async def _async_run(task_id: str, celery_task_id: str):
                     entry["summary"] = "TTS audio generated"
                 elif node_name in ("composite_video", "composite"):
                     entry["summary"] = f"Final video: {node_output.get('final_video_path', 'N/A')[:60]}"
+                saved_state = {key: node_output[key] for key in ARTIFACT_STATE_KEYS if key in node_output}
+                if saved_state:
+                    entry["state"] = saved_state
                 progress_log.append(entry)
                 async with SessionLocal() as db:
-                    t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
-                    t.progress_log = progress_log
+                    t = (await db.execute(
+                        select(VideoTask).where(VideoTask.id == task_id).with_for_update()
+                    )).scalar_one()
+                    latest_log = list(t.progress_log or [])
+                    latest_log.append(entry)
+                    t.progress_log = latest_log
+                    progress_log = latest_log
                     await db.commit()
 
         # Graph completed without hitting an interrupt — collect final video path
@@ -221,19 +242,26 @@ async def _async_run(task_id: str, celery_task_id: str):
         await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
 
     except Exception as e:
-        progress_log.append({
-            "step": last_node or "unknown",
+        failed_node = e.node_name if isinstance(e, NodeExecutionError) else last_node or "unknown"
+        root_error = e.__cause__ if isinstance(e, NodeExecutionError) and e.__cause__ else e
+        error_entry = {
+            "step": failed_node,
             "time": _dt.datetime.utcnow().isoformat() + "Z",
             "status": "error",
-            "summary": f"{type(e).__name__}: {str(e)[:300]}"
-        })
+            "summary": f"{type(root_error).__name__}: {str(root_error)[:300]}"
+        }
         async with SessionLocal() as db:
-            t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            t = (await db.execute(
+                select(VideoTask).where(VideoTask.id == task_id).with_for_update()
+            )).scalar_one()
             t.status = "failed"
-            t.error_message = f"{type(e).__name__}: {e}"
-            t.progress_log = progress_log
+            t.current_step = stage_for_node(failed_node)
+            t.error_message = f"{type(root_error).__name__}: {root_error}"
+            latest_log = list(t.progress_log or [])
+            latest_log.append(error_entry)
+            t.progress_log = latest_log
             await db.commit()
-        await progress_manager.send_progress(task_id, {"status": "failed", "error": str(e)})
+        await progress_manager.send_progress(task_id, {"status": "failed", "error": str(root_error)})
         raise
 
 

@@ -7,6 +7,7 @@ from src.tools.tts import generate_tts
 from src.tools.render import render_hyperframes
 from src.tools.transcription import transcribe_audio
 from src.tools.llm_tools import llm_chat, analyze_video_structure
+from src.tasks.execution import tracked_node
 
 PROMPT = """Rewrite the following video script for a perfume product.
 Replace the original product mentions with this product: {product_name}.
@@ -36,6 +37,8 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph = StateGraph(VideoAgentState)
 
     async def analyze_source(state: VideoAgentState) -> dict:
+        if state.get("viral_analysis"):
+            return {"viral_analysis": state["viral_analysis"]}
         transcript = await transcribe_audio(state["viral_url"])
         analysis = await analyze_video_structure(transcript)
         return {"viral_analysis": analysis}
@@ -44,6 +47,8 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         return {}
 
     async def generate_rewritten_script(state: VideoAgentState) -> dict:
+        if state.get("script_content") and state.get("image_prompts"):
+            return {}
         info = state["product_info"]
         user_prompt = PROMPT.format(
             product_name=info["name"],
@@ -62,6 +67,8 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         return {}
 
     async def generate_images(state: VideoAgentState) -> dict:
+        if state.get("generated_images"):
+            return {"generated_images": state["generated_images"]}
         images = []
         for i, p in enumerate(state.get("image_prompts", [])):
             url = await generate_image(p)
@@ -72,22 +79,29 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         return {}
 
     async def generate_clips_and_voiceover(state: VideoAgentState) -> dict:
-        clips = []
-        for img in state.get("generated_images", []):
-            if img.get("status") == "approved":
-                clip = await generate_video(
-                    prompt="Smooth cinematic movement, luxury product showcase",
-                    image_urls=[img["image_url"]],
-                )
-                clips.append(clip)
+        clips = list(state.get("video_clips") or [])
+        if not clips:
+            for img in state.get("generated_images", []):
+                if img.get("status") == "approved":
+                    clip = await generate_video(
+                        prompt="Smooth cinematic movement, luxury product showcase",
+                        image_urls=[img["image_url"]],
+                    )
+                    clips.append(clip)
 
-        tts_result = await generate_tts(
-            state.get("edited_script_content") or state["script_content"]
-        )
+        if state.get("tts_audio_url") and state.get("tts_words"):
+            audio_url = state["tts_audio_url"]
+            words = state["tts_words"]
+        else:
+            tts_result = await generate_tts(
+                state.get("edited_script_content") or state["script_content"]
+            )
+            audio_url = tts_result["audio_url"]
+            words = tts_result["words"]
         return {
             "video_clips": clips,
-            "tts_audio_url": tts_result["audio_url"],
-            "tts_words": tts_result["words"],
+            "tts_audio_url": audio_url,
+            "tts_words": words,
         }
 
     async def composite(state: VideoAgentState) -> dict:
@@ -113,14 +127,14 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         path = await render_hyperframes(html, "/tmp")
         return {"hyperframes_html": html, "final_video_path": path}
 
-    graph.add_node("analyze_source", analyze_source)
+    graph.add_node("analyze_source", tracked_node("analyze_source", analyze_source))
     graph.add_node("wait_viral_confirm", wait_viral_confirm)
-    graph.add_node("generate_rewritten_script", generate_rewritten_script)
+    graph.add_node("generate_rewritten_script", tracked_node("generate_rewritten_script", generate_rewritten_script))
     graph.add_node("wait_script_review", wait_script_review)
-    graph.add_node("generate_images", generate_images)
+    graph.add_node("generate_images", tracked_node("generate_images", generate_images))
     graph.add_node("wait_image_review", wait_image_review)
-    graph.add_node("generate_clips_and_voiceover", generate_clips_and_voiceover)
-    graph.add_node("composite", composite)
+    graph.add_node("generate_clips_and_voiceover", tracked_node("generate_clips_and_voiceover", generate_clips_and_voiceover))
+    graph.add_node("composite", tracked_node("composite", composite))
 
     graph.set_entry_point("analyze_source")
     graph.add_edge("analyze_source", "wait_viral_confirm")

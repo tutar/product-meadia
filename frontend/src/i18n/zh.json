@@ -95,6 +95,38 @@
     "approveCharacter": "批准角色",
     "loading": "加载中..."
   },
+  "execution": {
+    "title": "执行日志",
+    "stepsCount": "步",
+    "ok": "成功",
+    "fail": "失败",
+    "steps": {
+      "analyze_source": "分析源视频",
+      "generate_script": "生成脚本",
+      "generate_rewritten_script": "改写脚本",
+      "generate_character": "生成角色",
+      "generate_images": "生成图片",
+      "generate_video_clips": "生成视频片段",
+      "generate_clips_and_voiceover": "生成视频片段和配音",
+      "generate_voiceover": "生成配音",
+      "generate_tts_and_lipsync": "生成配音和口型同步",
+      "composite_video": "合成视频",
+      "composite": "合成视频"
+    },
+    "summaries": {
+      "analyze_source": "源视频已分析",
+      "generate_script": "脚本已生成",
+      "generate_rewritten_script": "脚本已改写",
+      "generate_character": "角色已生成",
+      "generate_images": "图片已生成",
+      "generate_video_clips": "视频片段已生成",
+      "generate_clips_and_voiceover": "视频片段和配音已生成",
+      "generate_voiceover": "配音已生成",
+      "generate_tts_and_lipsync": "配音和口型同步已生成",
+      "composite_video": "最终视频已渲染",
+      "composite": "最终视频已渲染"
+    }
+  },
   "steps": {
     "pending": "排队中",
     "scripting": "撰写脚本",

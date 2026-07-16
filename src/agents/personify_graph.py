@@ -6,6 +6,7 @@ from src.tools.tts import generate_tts
 from src.tools.lipsync import run_lipsync
 from src.tools.render import render_hyperframes
 from src.tools.llm_tools import llm_chat
+from src.tasks.execution import tracked_node
 
 CHARACTER_PROMPT = """Design a personified character for this perfume:
 Product: {product_name}
@@ -47,6 +48,8 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
     graph = StateGraph(VideoAgentState)
 
     async def generate_character(state: VideoAgentState) -> dict:
+        if state.get("character_image_url"):
+            return {"character_image_url": state["character_image_url"]}
         info = state["product_info"]
         prompt = CHARACTER_PROMPT.format(
             product_name=info["name"],
@@ -63,6 +66,8 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
         return {}
 
     async def generate_script(state: VideoAgentState) -> dict:
+        if state.get("script_content"):
+            return {}
         info = state["product_info"]
         prompt = SCRIPT_PROMPT.format(
             product_name=info["name"],
@@ -79,15 +84,21 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
         return {}
 
     async def generate_tts_and_lipsync(state: VideoAgentState) -> dict:
-        tts_result = await generate_tts(
-            state.get("edited_script_content") or state["script_content"]
-        )
-        lipsync_url = await run_lipsync(
-            state["character_image_url"], tts_result["audio_url"]
+        if state.get("tts_audio_url") and state.get("tts_words"):
+            audio_url = state["tts_audio_url"]
+            words = state["tts_words"]
+        else:
+            tts_result = await generate_tts(
+                state.get("edited_script_content") or state["script_content"]
+            )
+            audio_url = tts_result["audio_url"]
+            words = tts_result["words"]
+        lipsync_url = state.get("lipsync_video_url") or await run_lipsync(
+            state["character_image_url"], audio_url
         )
         return {
-            "tts_audio_url": tts_result["audio_url"],
-            "tts_words": tts_result["words"],
+            "tts_audio_url": audio_url,
+            "tts_words": words,
             "lipsync_video_url": lipsync_url,
         }
 
@@ -113,12 +124,12 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
         path = await render_hyperframes(html, "/tmp")
         return {"hyperframes_html": html, "final_video_path": path}
 
-    graph.add_node("generate_character", generate_character)
+    graph.add_node("generate_character", tracked_node("generate_character", generate_character))
     graph.add_node("wait_character_review", wait_character_review)
-    graph.add_node("generate_script", generate_script)
+    graph.add_node("generate_script", tracked_node("generate_script", generate_script))
     graph.add_node("wait_script_review", wait_script_review)
-    graph.add_node("generate_tts_and_lipsync", generate_tts_and_lipsync)
-    graph.add_node("composite", composite)
+    graph.add_node("generate_tts_and_lipsync", tracked_node("generate_tts_and_lipsync", generate_tts_and_lipsync))
+    graph.add_node("composite", tracked_node("composite", composite))
 
     graph.set_entry_point("generate_character")
     graph.add_edge("generate_character", "wait_character_review")

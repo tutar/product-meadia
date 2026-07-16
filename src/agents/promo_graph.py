@@ -6,6 +6,7 @@ from src.tools.video_gen import generate_video
 from src.tools.tts import generate_tts
 from src.tools.render import render_hyperframes
 from src.tools.llm_tools import llm_chat
+from src.tasks.execution import tracked_node
 
 SCRIPT_SYSTEM = """You are a perfume video scriptwriter. Given a perfume product, write:
 1. A video script (narration text) with structure: opening → middle notes → base notes → scenarios → CTA
@@ -81,6 +82,8 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         return {"generated_images": images}
 
     async def generate_video_clips(state: VideoAgentState) -> dict:
+        if state.get("video_clips"):
+            return {"video_clips": state["video_clips"]}
         approved_urls = [img["image_url"] for img in state.get("generated_images", []) if img.get("status") == "approved"]
         clips = []
         for url in approved_urls:
@@ -92,6 +95,8 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         return {"video_clips": clips}
 
     async def generate_voiceover(state: VideoAgentState) -> dict:
+        if state.get("tts_audio_url") and state.get("tts_words"):
+            return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"]}
         script = state.get("edited_script_content") or state["script_content"]
         result = await generate_tts(script)
         return {"tts_audio_url": result["audio_url"], "tts_words": result["words"]}
@@ -121,13 +126,13 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         path = await render_hyperframes(html, "/tmp")
         return {"hyperframes_html": html, "final_video_path": path}
 
-    graph.add_node("generate_script", generate_script)
+    graph.add_node("generate_script", tracked_node("generate_script", generate_script))
     graph.add_node("wait_script_review", wait_script_review)
-    graph.add_node("generate_images", generate_images)
+    graph.add_node("generate_images", tracked_node("generate_images", generate_images))
     graph.add_node("wait_image_review", wait_image_review)
-    graph.add_node("generate_video_clips", generate_video_clips)
-    graph.add_node("generate_voiceover", generate_voiceover)
-    graph.add_node("composite_video", composite_video)
+    graph.add_node("generate_video_clips", tracked_node("generate_video_clips", generate_video_clips))
+    graph.add_node("generate_voiceover", tracked_node("generate_voiceover", generate_voiceover))
+    graph.add_node("composite_video", tracked_node("composite_video", composite_video))
 
     graph.set_entry_point("generate_script")
     graph.add_edge("generate_script", "wait_script_review")

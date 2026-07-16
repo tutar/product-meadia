@@ -16,6 +16,7 @@ from src.schemas.task import (
     ImageResponse, ImageReview, ViralAnalysisResponse,
 )
 from src.auth.deps import get_current_user
+from src.tasks.execution import stage_for_node
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -40,12 +41,6 @@ async def create_task(
         status="pending",
     )
     db.add(task)
-    await db.commit()
-    await db.refresh(task)
-
-    from src.tasks.video_tasks import run_video_task
-    celery_result = run_video_task.delay(str(task.id))
-    task.celery_task_id = celery_result.id
     await db.commit()
     await db.refresh(task)
 
@@ -207,22 +202,28 @@ async def resume_task(
     user: User = Depends(get_current_user),
 ):
     """Manually resume/start a task — dispatches the graph in background."""
-    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
+    result = await db.execute(select(VideoTask).where(VideoTask.id == task_id).with_for_update())
     task = result.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     if task.status == "done":
         raise HTTPException(status_code=400, detail="Task already done")
+    if task.status not in ("pending", "failed"):
+        return {"status": "already_running", "task_status": task.status}
     # Allow retry from failed — resume from last completed step
     if task.status == "failed":
         task.error_message = None
+        failed_step = (task.progress_log or [{}])[-1].get("step")
+        retry_status = stage_for_node(failed_step)
         # Check what's already done
         script_result = await db.execute(select(Script).where(Script.task_id == task_id))
         script = script_result.scalar_one_or_none()
         img_result = await db.execute(select(GeneratedImage).where(GeneratedImage.task_id == task_id))
         images = img_result.scalars().all()
 
-        if images and any(img.status == "approved" for img in images):
+        if retry_status:
+            task.status = retry_status
+        elif images and any(img.status == "approved" for img in images):
             task.status = "image_review"  # Re-review what we have
         elif images and all(img.status in ("pending_review", "rejected") for img in images):
             task.status = "image_review"  # Re-review existing images
@@ -232,6 +233,9 @@ async def resume_task(
             task.status = "script_review"  # Re-review script
         else:
             task.status = "scripting"  # Start fresh
+        await db.commit()
+    else:
+        task.status = "scripting"
         await db.commit()
 
     # Run graph in background via asyncio task

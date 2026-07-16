@@ -95,6 +95,38 @@
     "approveCharacter": "Approve Character",
     "loading": "Loading..."
   },
+  "execution": {
+    "title": "Execution Log",
+    "stepsCount": "steps",
+    "ok": "OK",
+    "fail": "FAIL",
+    "steps": {
+      "analyze_source": "Analyze source video",
+      "generate_script": "Generate script",
+      "generate_rewritten_script": "Rewrite script",
+      "generate_character": "Generate character",
+      "generate_images": "Generate images",
+      "generate_video_clips": "Generate video clips",
+      "generate_clips_and_voiceover": "Generate clips and voiceover",
+      "generate_voiceover": "Generate voiceover",
+      "generate_tts_and_lipsync": "Generate voice and lip sync",
+      "composite_video": "Composite video",
+      "composite": "Composite video"
+    },
+    "summaries": {
+      "analyze_source": "Source video analyzed",
+      "generate_script": "Script generated",
+      "generate_rewritten_script": "Script rewritten",
+      "generate_character": "Character generated",
+      "generate_images": "Images generated",
+      "generate_video_clips": "Video clips generated",
+      "generate_clips_and_voiceover": "Video clips and voiceover generated",
+      "generate_voiceover": "Voiceover generated",
+      "generate_tts_and_lipsync": "Voice and lip sync generated",
+      "composite_video": "Final video rendered",
+      "composite": "Final video rendered"
+    }
+  },
   "steps": {
     "pending": "Queued",
     "scripting": "Writing Script",

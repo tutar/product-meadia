@@ -9,3 +9,8 @@ build/
 node_modules/
 test-results/
 .worktrees/
+.vscode/
+.codex/
+.agents/
+.claude/
+skills-lock.json
