@@ -2,12 +2,12 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 from uuid import UUID
 
-Selection = Literal['single_select','multi_select']
+AttributeType = Literal['text', 'number', 'single_select', 'multi_select', 'boolean']
 
 class CategoryAttributeInput(BaseModel):
     key: str = Field(min_length=1, max_length=100)
     label: str = Field(min_length=1, max_length=255)
-    type: str
+    type: AttributeType
     required: bool = False
     options: list[str] = Field(default_factory=list)
     sort_order: int = 0
@@ -25,7 +25,7 @@ class CategoryAttributeInput(BaseModel):
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = None
-    attributes: list[CategoryAttributeInput] = []
+    attributes: list[CategoryAttributeInput] = Field(default_factory=list)
 
 class CategoryUpdate(CategoryCreate):
     template_version: int
@@ -39,5 +39,5 @@ class CategoryOut(BaseModel):
     name: str
     description: str | None
     template_version: int
-    attributes: list[CategoryAttributeOut] = []
+    attributes: list[CategoryAttributeOut] = Field(default_factory=list)
     model_config = {'from_attributes': True}
