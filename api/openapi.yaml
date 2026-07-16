@@ -1,14 +1,105 @@
 openapi: "3.0.3"
 info:
-  title: 香水短视频生成 API
+  title: 通用商品短视频生成 API
   version: "0.1.0"
-  description: 产品短视频 AI 生成应用后端接口
+  description: 通用商品短视频 AI 生成应用后端接口
 
 servers:
   - url: http://localhost:8000/api/v1
     description: 本地开发
 
 paths:
+  /categories:
+    get:
+      summary: 品类列表
+      operationId: listCategories
+      tags: [Categories]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: 当前用户的品类
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryList"
+    post:
+      summary: 原子创建品类及属性模板
+      operationId: createCategory
+      tags: [Categories]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryCreate"
+      responses:
+        "201":
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /categories/{category_id}:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    get:
+      summary: 品类详情及完整属性模板
+      operationId: getCategory
+      tags: [Categories]
+      responses:
+        "200":
+          description: 品类详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: 原子更新品类及完整属性模板
+      operationId: updateCategory
+      tags: [Categories]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryUpdate"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "409":
+          description: 模板版本冲突
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      summary: 删除未被商品引用的品类
+      operationId: deleteCategory
+      tags: [Categories]
+      responses:
+        "204": { description: 已删除 }
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 品类仍被商品引用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CategoryReferencedError"
+
   /products:
     post:
       summary: 创建产品
@@ -27,11 +118,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Product"
+        "409":
+          description: 品类模板版本已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
     get:
       summary: 产品列表
       operationId: listProducts
       tags: [Products]
       parameters:
+        - name: name
+          in: query
+          description: 按商品名称搜索
+          schema: { type: string }
+        - name: category_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, created_at, -created_at, updated_at, -updated_at]
+            default: -updated_at
         - name: page
           in: query
           schema: { type: integer, default: 1 }
@@ -44,14 +156,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Product"
-                  total:
-                    type: integer
+                $ref: "#/components/schemas/ProductList"
 
   /products/{product_id}:
     get:
@@ -70,6 +175,83 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Product"
+    put:
+      summary: 更新商品
+      operationId: updateProduct
+      tags: [Products]
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductCreate"
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "409":
+          description: 品类模板版本已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      summary: 删除商品（已有任务保留快照）
+      operationId: deleteProduct
+      tags: [Products]
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      responses:
+        "204": { description: 已删除 }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /products/main-image/generate:
+    post:
+      summary: 为未保存的商品草稿生成 AI 主图候选
+      operationId: generateProductMainImage
+      tags: [Products]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MainImageGenerateRequest"
+      responses:
+        "201":
+          description: 临时候选图
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MainImageCandidate"
+        "409":
+          description: 品类模板版本已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /initialization-status:
+    get:
+      summary: 查询当前用户样例目录初始化状态
+      operationId: getInitializationStatus
+      tags: [Initialization]
+      responses:
+        "200":
+          description: 初始化状态；尚无版本记录时返回 pending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InitializationStatus"
 
   /tasks:
     post:
@@ -339,46 +521,236 @@ paths:
           description: 视频未生成完成
 
 components:
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: page_size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    CategoryId:
+      name: category_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ProductId:
+      name: product_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    ValidationError:
+      description: 字段校验失败
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ValidationError"
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
   schemas:
-    ProductCreate:
+    AttributeType:
+      type: string
+      enum: [text, number, single_select, multi_select, boolean]
+
+    CategoryAttributeInput:
       type: object
-      required: [name]
+      required: [key, label, type]
       properties:
-        name:
-          type: string
-          description: 商品名称
-          example: 月光茉莉 EDP
-        top_note:
-          type: string
-          description: 前调
-        middle_note:
-          type: string
-          description: 中调
-        base_note:
-          type: string
-          description: 后调
+        key: { type: string, maxLength: 100, pattern: "^[A-Za-z][A-Za-z0-9_]*$" }
+        label: { type: string, maxLength: 255 }
+        type: { $ref: "#/components/schemas/AttributeType" }
+        required: { type: boolean, default: false }
+        options:
+          type: array
+          items: { type: string }
+          default: []
+        sort_order: { type: integer, default: 0 }
+
+    CategoryAttribute:
+      allOf:
+        - $ref: "#/components/schemas/CategoryAttributeInput"
+        - type: object
+          required: [id, created_at, updated_at]
+          properties:
+            id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    CategoryCreate:
+      type: object
+      required: [name, attributes]
+      properties:
+        name: { type: string, maxLength: 255 }
+        description: { type: string, nullable: true }
+        attributes:
+          type: array
+          description: 按此完整有序数组原子提交属性模板
+          items: { $ref: "#/components/schemas/CategoryAttributeInput" }
+
+    CategoryUpdate:
+      allOf:
+        - $ref: "#/components/schemas/CategoryCreate"
+        - type: object
+          required: [template_version]
+          properties:
+            template_version: { type: integer, minimum: 1 }
+
+    Category:
+      allOf:
+        - $ref: "#/components/schemas/CategoryCreate"
+        - type: object
+          required: [id, template_version, product_count, created_at, updated_at]
+          properties:
+            id: { type: string, format: uuid }
+            template_version: { type: integer, minimum: 1 }
+            product_count: { type: integer, minimum: 0 }
+            attributes:
+              type: array
+              items: { $ref: "#/components/schemas/CategoryAttribute" }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    CategoryList:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Category" }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        page_size: { type: integer, minimum: 1 }
+
+    ProductDraft:
+      type: object
+      required: [category_id, name, category_template_version]
+      properties:
+        category_id: { type: string, format: uuid }
+        name: { type: string, maxLength: 255 }
+        description: { type: string, nullable: true }
+        selling_points:
+          type: array
+          items: { type: string }
+          default: []
         scenarios:
           type: array
-          items:
-            type: string
-          description: 适用场景
-          example: ["约会", "通勤", "晚宴"]
-        main_image_url:
-          type: string
-          format: uri
-          description: 商品主图 URL
+          items: { type: string }
+          default: []
+        attributes:
+          type: object
+          additionalProperties: true
+          default: {}
+        category_template_version: { type: integer, minimum: 1 }
+
+    ProductCreate:
+      description: 不接受 user_id；上传 URL/来源或已确认 AI 候选图二选一
+      allOf:
+        - $ref: "#/components/schemas/ProductDraft"
+        - oneOf:
+            - type: object
+              required: [main_image_url, main_image_source]
+              properties:
+                main_image_url: { type: string, format: uri }
+                main_image_source: { type: string, enum: [upload] }
+            - type: object
+              required: [main_image_candidate_id]
+              properties:
+                main_image_candidate_id: { type: string, format: uuid }
 
     Product:
       allOf:
-        - $ref: "#/components/schemas/ProductCreate"
+        - $ref: "#/components/schemas/ProductDraft"
         - type: object
+          required: [id, main_image_url, main_image_source, created_at, updated_at]
           properties:
-            id:
-              type: string
-              format: uuid
-            created_at:
-              type: string
-              format: date-time
+            id: { type: string, format: uuid }
+            category: { $ref: "#/components/schemas/Category" }
+            main_image_url: { type: string, format: uri }
+            main_image_source: { type: string, enum: [upload, ai] }
+            task_count: { type: integer, minimum: 0 }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    ProductList:
+      type: object
+      required: [items, total, page, page_size]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Product" }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        page_size: { type: integer, minimum: 1 }
+
+    MainImageGenerateRequest:
+      description: 未保存的商品草稿；用户身份只从认证上下文获取，不接受 user_id
+      allOf:
+        - $ref: "#/components/schemas/ProductDraft"
+
+    MainImageCandidate:
+      type: object
+      required: [candidate_id, preview_url, expires_at]
+      properties:
+        candidate_id: { type: string, format: uuid }
+        preview_url: { type: string, format: uri }
+        expires_at: { type: string, format: date-time }
+
+    InitializationStatus:
+      type: object
+      required: [status, sample_version, attempts]
+      properties:
+        status: { type: string, enum: [pending, completed, failed] }
+        sample_version: { type: integer, minimum: 1 }
+        attempts: { type: integer, minimum: 0 }
+        error_message: { type: string, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+
+    FieldError:
+      type: object
+      required: [field, code, message]
+      properties:
+        field: { type: string, description: 字段路径，如 attributes.color }
+        code: { type: string }
+        message: { type: string }
+
+    ValidationError:
+      type: object
+      required: [code, message, fields]
+      properties:
+        code: { type: string, example: validation_error }
+        message: { type: string }
+        fields:
+          type: array
+          items: { $ref: "#/components/schemas/FieldError" }
+
+    TemplateConflictError:
+      type: object
+      required: [code, message, current_template_version]
+      properties:
+        code: { type: string, enum: [template_version_conflict] }
+        message: { type: string }
+        current_template_version: { type: integer, minimum: 1 }
+
+    CategoryReferencedError:
+      type: object
+      required: [code, message, product_count]
+      properties:
+        code: { type: string, enum: [category_referenced] }
+        message: { type: string }
+        product_count: { type: integer, minimum: 1 }
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
 
     TaskType:
       type: string
