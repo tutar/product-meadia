@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from uuid import UUID
 from sqlalchemy.exc import IntegrityError
@@ -11,14 +11,24 @@ from src.models.product import Product
 from src.schemas.category import CategoryCreate, CategoryUpdate, CategoryOut
 from src.services.category_service import get_owned_category, replace_template
 
-router = APIRouter(prefix='/categories', tags=['categories'])
+router = APIRouter(prefix="/categories", tags=["categories"])
 
-@router.post('', response_model=CategoryOut, status_code=201)
-async def create(body: CategoryCreate, db: AsyncSession=Depends(get_async_session), user: User=Depends(get_current_user)):
-    c=Category(user_id=user.id,name=body.name,description=body.description)
-    c.attributes=[CategoryAttribute(**a.model_dump()) for a in body.attributes]; db.add(c)
+
+def _is_name_conflict(exc: IntegrityError) -> bool:
+    orig = getattr(exc, "orig", None)
+    return getattr(orig, "constraint_name", None) in {"categories_user_id_name_key", "uq_categories_user_id_name"} or getattr(orig, "pgcode", None) == "23505"
+
+@router.post("", response_model=CategoryOut, status_code=201)
+async def create(body: CategoryCreate, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    c = Category(user_id=user.id, name=body.name, description=body.description)
+    c.attributes = [CategoryAttribute(**a.model_dump()) for a in body.attributes]
+    db.add(c)
     try: await db.commit(); await db.refresh(c)
-    except IntegrityError: await db.rollback(); raise HTTPException(409,'name already exists')
+    except IntegrityError as exc:
+        await db.rollback()
+        if _is_name_conflict(exc):
+            raise HTTPException(409, "name already exists")
+        raise
     return c
 
 @router.get('', response_model=list[CategoryOut])
@@ -45,7 +55,11 @@ async def update(category_id: UUID, body: CategoryUpdate, db: AsyncSession=Depen
         current = await get_owned_category(db, user.id, category_id)
         raise HTTPException(409, {"code": "template_version_conflict", "current_version": current.template_version})
     try: await db.commit(); await db.refresh(c)
-    except IntegrityError: await db.rollback(); raise HTTPException(409,'name already exists')
+    except IntegrityError as exc:
+        await db.rollback()
+        if _is_name_conflict(exc):
+            raise HTTPException(409, "name already exists")
+        raise
     return c
 
 @router.delete('/{category_id}', status_code=204)
