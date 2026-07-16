@@ -3,7 +3,8 @@ import api from "./client";
 export type AttributeType = "text" | "number" | "single_select" | "multi_select" | "boolean";
 export interface CategoryAttribute { id?: string; key: string; label: string; type: AttributeType; required: boolean; options: string[]; sort_order: number }
 export interface Category { id: string; name: string; description: string | null; template_version: number; product_count?: number; attributes: CategoryAttribute[] }
-export interface CategoryInput { name: string; description: string | null; attributes: CategoryAttribute[]; template_version?: number }
+export interface CategoryAttributeInput { key: string; label: string; type: AttributeType; required: boolean; options: string[]; sort_order: number }
+export interface CategoryInput { name: string; description: string | null; attributes: CategoryAttributeInput[]; template_version?: number }
 
 export const catalogApi = {
   async listCategories(): Promise<Category[]> { const { data } = await api.get<Category[] | { items: Category[] }>("/categories"); return Array.isArray(data) ? data : data.items; },
