@@ -46,6 +46,7 @@ class _Result:
 
 class _DBError:
     pgcode = "23505"
+    constraint_name = "categories_user_id_name_key"
 
 class _UnknownDBError:
     pgcode = "40001"
