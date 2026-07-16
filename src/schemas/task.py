@@ -35,6 +35,8 @@ class ImageResponse(BaseModel):
     task_id: UUID
     prompt: str
     image_url: str | None
+    asset_id: UUID | None = None
+    access_url: str | None = None
     sort_order: int
     status: str
 
@@ -67,6 +69,7 @@ class TaskResponse(BaseModel):
     image_count: int
     error_message: str | None
     result_video_url: str | None
+    result_video_asset_id: UUID | None = None
     progress_log: list[dict] | None
     created_at: datetime
     updated_at: datetime

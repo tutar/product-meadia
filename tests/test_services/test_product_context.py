@@ -13,7 +13,7 @@ def test_snapshot_is_deterministic_and_contains_active_ordered_attributes():
         SimpleNamespace(key="weight", label="Weight", type="number", sort_order=2),
         SimpleNamespace(key="color", label="Color", type="single_select", sort_order=1),
     ])
-    product = SimpleNamespace(id=uuid4(), name="Cup", description="Ceramic", selling_points=["Strong"], scenarios=["Home"], main_image_url="cup.jpg", main_image_source="upload", attributes={"color": "red", "unknown": "x"})
+    product = SimpleNamespace(id=uuid4(), name="Cup", description="Ceramic", selling_points=["Strong"], scenarios=["Home"], main_image_asset_id=uuid4(), main_image_source="asset", attributes={"color": "red", "unknown": "x"})
     snapshot = build_product_snapshot(product, category)
     assert snapshot["version"] == 1 and snapshot["category"]["name"] == "Cups"
     assert [item["key"] for item in snapshot["attributes"]] == ["color"]

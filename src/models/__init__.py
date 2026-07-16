@@ -24,3 +24,4 @@ __all__ = [
     "VideoTask",
     "ViralAnalysis",
 ]
+from src.models.media_asset import MediaAsset

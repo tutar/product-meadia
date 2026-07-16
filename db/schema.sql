@@ -53,7 +53,7 @@ CREATE TABLE products (
     selling_points JSONB NOT NULL DEFAULT '[]',
     scenarios JSONB NOT NULL DEFAULT '[]',
     main_image_url TEXT NOT NULL,
-    main_image_source VARCHAR(20) NOT NULL CHECK (main_image_source IN ('upload', 'ai')),
+    main_image_source VARCHAR(20) NOT NULL CHECK (main_image_source IN ('upload', 'ai', 'asset')),
     attributes JSONB NOT NULL DEFAULT '{}',
     category_template_version INTEGER NOT NULL CHECK (category_template_version > 0),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -63,7 +63,7 @@ CREATE TABLE products (
 CREATE TABLE main_image_candidates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    image_url TEXT NOT NULL,
+    image_url TEXT NOT NULL DEFAULT '',
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -115,6 +115,40 @@ CREATE TABLE video_tasks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE media_assets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    task_id UUID REFERENCES video_tasks(id) ON DELETE CASCADE,
+    category VARCHAR(30) NOT NULL CHECK (category IN (
+        'product_image', 'source_video', 'generated_image', 'video_clip',
+        'tts_audio', 'lipsync_video', 'character_image', 'final_video'
+    )),
+    bucket VARCHAR(255) NOT NULL,
+    object_key TEXT NOT NULL UNIQUE,
+    content_type VARCHAR(255) NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+    checksum VARCHAR(64) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'available'
+        CHECK (status IN ('available', 'unavailable', 'superseded', 'pending_delete', 'deleted')),
+    source_provider VARCHAR(100),
+    idempotency_key VARCHAR(255),
+    superseded_at TIMESTAMPTZ,
+    delete_after TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE main_image_candidates
+    ADD COLUMN IF NOT EXISTS asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX uq_media_assets_owner_idempotency
+    ON media_assets(owner_user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+ALTER TABLE products ADD COLUMN main_image_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;
+ALTER TABLE video_tasks ADD COLUMN result_video_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;
+
 CREATE TABLE scripts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     task_id UUID NOT NULL REFERENCES video_tasks(id) ON DELETE CASCADE UNIQUE,
@@ -132,6 +166,7 @@ CREATE TABLE generated_images (
     task_id UUID NOT NULL REFERENCES video_tasks(id) ON DELETE CASCADE,
     prompt TEXT NOT NULL,
     image_url TEXT,
+    asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
     status VARCHAR(20) NOT NULL DEFAULT 'pending_review' CHECK (status IN ('pending_review', 'approved', 'rejected')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -166,6 +201,10 @@ CREATE INDEX idx_video_tasks_product ON video_tasks(product_id);
 CREATE INDEX idx_video_tasks_status ON video_tasks(status);
 CREATE INDEX idx_video_tasks_type ON video_tasks(type);
 CREATE INDEX idx_generated_images_task ON generated_images(task_id);
+CREATE INDEX idx_media_assets_owner ON media_assets(owner_user_id);
+CREATE INDEX idx_media_assets_product ON media_assets(product_id);
+CREATE INDEX idx_media_assets_task ON media_assets(task_id);
+CREATE INDEX idx_media_assets_cleanup ON media_assets(delete_after) WHERE delete_after IS NOT NULL;
 
 CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_categories_updated_at BEFORE UPDATE ON categories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -177,3 +216,4 @@ CREATE TRIGGER trg_video_tasks_updated_at BEFORE UPDATE ON video_tasks FOR EACH 
 CREATE TRIGGER trg_scripts_updated_at BEFORE UPDATE ON scripts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_generated_images_updated_at BEFORE UPDATE ON generated_images FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_viral_analyses_updated_at BEFORE UPDATE ON viral_analyses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_media_assets_updated_at BEFORE UPDATE ON media_assets FOR EACH ROW EXECUTE FUNCTION update_updated_at();

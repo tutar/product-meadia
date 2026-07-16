@@ -20,6 +20,8 @@ from src.auth.deps import get_current_user
 from src.tasks.execution import stage_for_node
 from src.tasks.recovery import is_stale_task
 from src.services.product_context import build_product_snapshot
+from src.api.media import get_media_service
+from src.services.media_service import MediaService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "compositing")
@@ -177,12 +179,22 @@ async def list_images(
     task_id: UUID,
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
+    media: MediaService = Depends(get_media_service),
 ):
     await owned_task(db, user, task_id)
     result = await db.execute(
         select(GeneratedImage).where(GeneratedImage.task_id == task_id).order_by(GeneratedImage.sort_order)
     )
-    return result.scalars().all()
+    images=result.scalars().all()
+    return [
+        {
+            "id": image.id, "task_id": image.task_id, "prompt": image.prompt,
+            "image_url": None, "asset_id": image.asset_id,
+            "access_url": await media.access_url(image.asset_id,user.id) if image.asset_id else None,
+            "sort_order": image.sort_order, "status": image.status,
+        }
+        for image in images
+    ]
 
 
 @router.put("/{task_id}/images/{image_id}")
@@ -301,27 +313,15 @@ async def download_video(
     task_id: UUID,
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
+    media: MediaService = Depends(get_media_service),
 ):
     result = await db.execute(select(VideoTask).where(VideoTask.id == task_id, VideoTask.user_id == user.id))
     task = result.scalar_one_or_none()
     if not task or task.status != "done":
         raise HTTPException(status_code=404, detail="Video not ready")
-    video_url = task.result_video_url
-    if not video_url:
+    if not task.result_video_asset_id:
         raise HTTPException(status_code=404, detail="Video not ready")
-
-    # Rendered videos are currently stored as local files by HyperFrames.  A
-    # filesystem path is not a usable browser URL, so stream it through the
-    # authenticated API endpoint. Keep supporting remote URLs for providers
-    # that return an object-storage URL.
-    if video_url.startswith(("http://", "https://")):
-        return RedirectResponse(url=video_url)
-
-    from pathlib import Path
-    path = Path(video_url)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Video file not found")
-    return FileResponse(path, media_type="video/mp4", filename="video.mp4")
+    return RedirectResponse(url=await media.access_url(task.result_video_asset_id,user.id))
 
 
 @router.post("/viral/analyze", response_model=ViralAnalysisResponse, status_code=status.HTTP_200_OK)

@@ -15,10 +15,11 @@ def test_prompt_is_generic_and_uses_draft():
 @pytest.mark.asyncio
 async def test_candidate_expires_in_24_hours():
     db=AsyncMock(); db.add=lambda x: None
+    asset_id=uuid4(); media=AsyncMock(); media.create_from_remote.return_value=type("A",(),{"id":asset_id})()
     d=ProductDraft(category_id=uuid4(),category_template_version=1,name='Cup')
     with patch('src.services.main_image_candidates.generate_image',AsyncMock(return_value='https://img/cup.png')):
-        c=await create_candidate(db,uuid4(),d)
-    assert c.image_url.endswith('cup.png')
+        c=await create_candidate(db,uuid4(),d,media,AsyncMock())
+    assert c.asset_id==asset_id and c.image_url==""
 
 @pytest.mark.asyncio
 async def test_consume_candidate_valid_marks_used_and_missing_returns_none():
@@ -49,7 +50,7 @@ async def test_create_candidate_ai_failure_does_not_add():
     d=ProductDraft(category_id=uuid4(),category_template_version=1,name='Cup')
     db=type('DB',(),{'add':lambda s,x: (_ for _ in ()).throw(AssertionError()),'flush':AsyncMock()})()
     with patch('src.services.main_image_candidates.generate_image',AsyncMock(side_effect=RuntimeError('boom'))):
-        with pytest.raises(RuntimeError): await create_candidate(db,uuid4(),d)
+        with pytest.raises(RuntimeError): await create_candidate(db,uuid4(),d,AsyncMock(),AsyncMock())
 
 @pytest.mark.asyncio
 async def test_consume_candidate_valid_marks_used():

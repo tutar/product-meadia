@@ -73,7 +73,7 @@ export default function TaskDetailPage() {
   // video element a browser-readable object URL.
   useEffect(() => {
     let objectUrl: string | null = null;
-    if (!task?.result_video_url || !id) {
+    if (!task?.result_video_asset_id || !id) {
       setVideoSrc(null);
       return;
     }
@@ -82,7 +82,7 @@ export default function TaskDetailPage() {
       setVideoSrc(objectUrl);
     }).catch(() => setVideoSrc(null));
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [task?.result_video_url, id]);
+  }, [task?.result_video_asset_id, id]);
 
   useEffect(() => {
     if (!task || FINAL_STATES.includes(task.status) || REVIEW_STATES.includes(task.status)) {
@@ -223,9 +223,9 @@ export default function TaskDetailPage() {
           <div className="flex items-center justify-between">
             <div>
               <p style={{ fontWeight: 600, marginBottom: 4, color: "var(--success)" }}>{t("task.videoComplete")}</p>
-              <p className="text-secondary text-sm">{task.result_video_url ? t("task.videoReady") : t("task.videoPending")}</p>
+              <p className="text-secondary text-sm">{task.result_video_asset_id ? t("task.videoReady") : t("task.videoPending")}</p>
             </div>
-            {task.result_video_url && videoSrc && (
+            {task.result_video_asset_id && videoSrc && (
               <a href={videoSrc} download="video.mp4" className="btn btn-primary btn-sm" style={{ textDecoration: "none" }}>{t("task.download")}</a>
             )}
           </div>
@@ -266,8 +266,8 @@ export default function TaskDetailPage() {
           <div className="image-grid">
             {images.map((img: any) => (
               <div key={img.id} className="image-card">
-                {img.image_url ? (
-                  <img src={img.image_url} alt="" />
+                {img.access_url ? (
+                  <img src={img.access_url} alt="" />
                 ) : (
                   <div style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
                     {t("task.regenerating")}
@@ -276,7 +276,7 @@ export default function TaskDetailPage() {
                 <div className="image-status">{img.status.replace(/_/g, " ")}</div>
                 {task.status === "image_review" && (
                   <div className="image-actions">
-                    {img.status === "pending_review" && img.image_url && (
+                    {img.status === "pending_review" && img.access_url && (
                       <button className="btn btn-primary btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>{t("task.approve")}</button>
                     )}
                     {img.status !== "approved" && (

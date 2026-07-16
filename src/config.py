@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     latentsync_base_url: str = "http://localhost:8090"
     rustfs_base_url: str = "http://localhost:8001"
+    rustfs_access_key: str = "rustfsadmin"
+    rustfs_secret_key: str = "rustfsadmin"
+    rustfs_region: str = "us-east-1"
+    media_bucket: str = "product-media"
+    media_access_ttl_seconds: int = 3600
 
     google_client_id: str = ""
     google_client_secret: str = ""

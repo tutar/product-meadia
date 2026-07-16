@@ -4,11 +4,12 @@ from typing import Any
 
 
 ARTIFACT_STATE_KEYS = (
-    "video_clips",
-    "tts_audio_url",
+    "video_clip_asset_ids",
+    "tts_audio_asset_id",
     "tts_words",
-    "lipsync_video_url",
-    "character_image_url",
+    "lipsync_video_asset_id",
+    "character_image_asset_id",
+    "final_video_asset_id",
 )
 
 NODE_TO_STAGE = {

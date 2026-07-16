@@ -15,6 +15,9 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     image_count = Column(Integer, nullable=False, default=4)
     error_message = Column(Text, nullable=True)
     result_video_url = Column(Text, nullable=True)
+    result_video_asset_id = Column(
+        UUID(as_uuid=True), ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True
+    )
     celery_task_id = Column(String(255), nullable=True)
     progress_log = Column(JSONB, nullable=False, default=list)
     user = relationship("User")
@@ -22,3 +25,4 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     script = relationship("Script", back_populates="task", uselist=False)
     images = relationship("GeneratedImage", back_populates="task")
     viral_analysis = relationship("ViralAnalysis", back_populates="task", uselist=False)
+    result_video_asset = relationship("MediaAsset", foreign_keys=[result_video_asset_id])

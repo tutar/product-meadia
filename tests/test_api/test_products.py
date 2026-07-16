@@ -15,7 +15,7 @@ def test_product_routes_include_crud_and_generate():
 
 def test_create_requires_image_choice_only_at_api_boundary():
     body=ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup')
-    assert body.main_image_url is None and body.main_image_candidate_id is None
+    assert body.main_image_asset_id is None and body.main_image_candidate_id is None
 
 def test_candidate_response_fields():
     from src.schemas.product import MainImageCandidateResponse
@@ -70,10 +70,11 @@ def _db():
     db=type('DB',(),{})(); db.add=Mock(); db.commit=AsyncMock(); db.refresh=AsyncMock(); db.delete=AsyncMock(); db.execute=AsyncMock(); return db
 
 @pytest.mark.asyncio
-async def test_create_upload_commits_owned_product(monkeypatch):
+async def test_create_asset_commits_owned_product(monkeypatch):
     db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={'color':'red'}))
-    result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_url='upload.jpg',main_image_source='upload'),db,user)
-    assert result.user_id==user.id and result.main_image_source=='upload'; db.add.assert_called_once(); db.commit.assert_awaited_once()
+    asset_id=uuid4(); db.execute.return_value=SimpleNamespace(scalar_one_or_none=lambda:SimpleNamespace(id=asset_id))
+    result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_asset_id=asset_id),db,user)
+    assert result.user_id==user.id and result.main_image_asset_id==asset_id; db.add.assert_called_once(); db.commit.assert_awaited_once()
 
 @pytest.mark.asyncio
 async def test_create_without_image_returns_422(monkeypatch):
@@ -83,9 +84,9 @@ async def test_create_without_image_returns_422(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_create_candidate_uses_owned_candidate(monkeypatch):
-    db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={})); monkeypatch.setattr(products_api,'consume_candidate',AsyncMock(return_value=SimpleNamespace(image_url='ai.jpg')))
+    asset_id=uuid4(); db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={})); monkeypatch.setattr(products_api,'consume_candidate',AsyncMock(return_value=SimpleNamespace(asset_id=asset_id)))
     result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_candidate_id=uuid4()),db,user)
-    assert result.main_image_url=='ai.jpg' and result.main_image_source=='ai'; db.commit.assert_awaited_once()
+    assert result.main_image_asset_id==asset_id and result.main_image_source=='ai'; db.commit.assert_awaited_once()
 
 @pytest.mark.asyncio
 async def test_listing_returns_items_total_and_user_scope():
@@ -103,10 +104,10 @@ async def test_update_preserves_old_image(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_update_candidate_replaces_image(monkeypatch):
-    db,user=_db(),SimpleNamespace(id=uuid4()); product=SimpleNamespace(id=uuid4(),user_id=user.id,main_image_url='old.jpg',main_image_source='upload',attributes={})
-    monkeypatch.setattr(products_api,'owned',AsyncMock(return_value=product)); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={})); monkeypatch.setattr(products_api,'consume_candidate',AsyncMock(return_value=SimpleNamespace(image_url='new.jpg')))
+    asset_id=uuid4(); db,user=_db(),SimpleNamespace(id=uuid4()); product=SimpleNamespace(id=uuid4(),user_id=user.id,main_image_url='',main_image_source='asset',main_image_asset_id=uuid4(),attributes={})
+    monkeypatch.setattr(products_api,'owned',AsyncMock(return_value=product)); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={})); monkeypatch.setattr(products_api,'consume_candidate',AsyncMock(return_value=SimpleNamespace(asset_id=asset_id)))
     await products_api.update(product.id,ProductUpdate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_candidate_id=uuid4()),db,user)
-    assert product.main_image_url=='new.jpg' and product.main_image_source=='ai'
+    assert product.main_image_asset_id==asset_id and product.main_image_source=='ai'
 
 @pytest.mark.asyncio
 async def test_delete_commits_owned_product(monkeypatch):
@@ -116,5 +117,5 @@ async def test_delete_commits_owned_product(monkeypatch):
 @pytest.mark.asyncio
 async def test_prepare_template_conflict_returns_409(monkeypatch):
     user=SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'get_owned_category',AsyncMock(return_value=SimpleNamespace(template_version=2,attributes=[])))
-    with pytest.raises(HTTPException) as exc: await products_api.prepare(_db(),user,ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_url='x'))
+    with pytest.raises(HTTPException) as exc: await products_api.prepare(_db(),user,ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup'))
     assert exc.value.status_code==409 and exc.value.detail['current_version']==2

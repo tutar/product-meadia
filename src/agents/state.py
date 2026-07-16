@@ -10,7 +10,7 @@ class ProductContext(TypedDict):
     attributes: list[dict]
     selling_points: list[str]
     scenarios: list[str]
-    main_image_url: str
+    main_image_asset_id: str
 
 
 class VideoAgentState(TypedDict):

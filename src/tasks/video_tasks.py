@@ -3,6 +3,8 @@ import datetime as _dt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from src.config import settings
+from src.media.rustfs import create_rustfs_storage
+from src.services.media_service import MediaService
 from src.tasks.celery_app import celery_app
 from src.models.task import VideoTask
 from src.models.script import Script
@@ -15,6 +17,19 @@ from src.tasks.execution import ARTIFACT_STATE_KEYS, NodeExecutionError, stage_f
 
 engine = create_async_engine(settings.database_url)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+
+async def _fetch_provider_media(url: str) -> tuple[bytes, str]:
+    from pathlib import Path
+    import httpx
+
+    if not url.startswith(("http://", "https://")):
+        path = Path(url)
+        return path.read_bytes(), "video/mp4"
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.content, response.headers.get("content-type", "application/octet-stream")
 
 
 def _get_graph(task_type: str):
@@ -66,6 +81,7 @@ async def _async_run(task_id: str, celery_task_id: str):
         async with SessionLocal() as db:
             result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
             task = result.scalar_one()
+            media = MediaService(db, create_rustfs_storage(settings))
             snapshot = task.product_snapshot
             if snapshot.get("version") != 1:
                 raise ValueError("Invalid product snapshot")
@@ -107,8 +123,14 @@ async def _async_run(task_id: str, celery_task_id: str):
             db_images = img_result.scalars().all()
             if db_images:
                 initial_state["generated_images"] = [
-                    {"sort_order": img.sort_order, "image_url": img.image_url, "status": img.status}
+                    {
+                        "sort_order": img.sort_order,
+                        "image_url": await media.access_url(img.asset_id, task.user_id),
+                        "asset_id": str(img.asset_id),
+                        "status": img.status,
+                    }
                     for img in db_images
+                    if img.asset_id
                 ]
 
             # Restore outputs of completed expensive nodes. These snapshots
@@ -121,6 +143,23 @@ async def _async_run(task_id: str, celery_task_id: str):
                 for key in ARTIFACT_STATE_KEYS:
                     if key in saved_state:
                         initial_state[key] = saved_state[key]
+                if saved_state.get("video_clip_asset_ids"):
+                    initial_state["video_clips"] = [
+                        await media.access_url(asset_id, task.user_id)
+                        for asset_id in saved_state["video_clip_asset_ids"]
+                    ]
+                if saved_state.get("tts_audio_asset_id"):
+                    initial_state["tts_audio_url"] = await media.access_url(
+                        saved_state["tts_audio_asset_id"], task.user_id
+                    )
+                if saved_state.get("lipsync_video_asset_id"):
+                    initial_state["lipsync_video_url"] = await media.access_url(
+                        saved_state["lipsync_video_asset_id"], task.user_id
+                    )
+                if saved_state.get("character_image_asset_id"):
+                    initial_state["character_image_url"] = await media.access_url(
+                        saved_state["character_image_asset_id"], task.user_id
+                    )
 
             # Set approval flags to skip completed wait nodes on retry
             if db_script and db_script.status == "approved":
@@ -232,8 +271,6 @@ async def _async_run(task_id: str, celery_task_id: str):
         async with SessionLocal() as db:
             t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
             t.status = "done"
-            if final_video:
-                t.result_video_url = final_video
             await db.commit()
         await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
 
@@ -281,16 +318,32 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
             # Upsert images — preserve approved status on retry
             existing = (await db.execute(select(GeneratedImage).where(GeneratedImage.task_id == task_id))).scalars().all()
             existing_map = {img.sort_order: img for img in existing}
+            task = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            media = MediaService(db, create_rustfs_storage(settings))
             for img_data in output.get("generated_images", []):
                 sort_order = img_data.get("sort_order", 0)
                 old = existing_map.get(sort_order)
+                asset_id = img_data.get("asset_id")
+                if not asset_id and img_data.get("image_url"):
+                    asset = await media.create_from_remote(
+                        owner_user_id=task.user_id,
+                        category="generated_image",
+                        source_url=img_data["image_url"],
+                        filename=f"{task_id}-{sort_order}.bin",
+                        fetch=_fetch_provider_media,
+                        task_id=task.id,
+                        source_provider="image-provider",
+                        idempotency_key=f"task:{task_id}:generated-image:{sort_order}",
+                    )
+                    asset_id = asset.id
                 if old:
-                    old.image_url = img_data.get("image_url", old.image_url)
+                    old.asset_id = asset_id or old.asset_id
                     old.status = img_data.get("status", old.status)
                 else:
                     db.add(GeneratedImage(
                         task_id=task_id, prompt="",
-                        image_url=img_data.get("image_url", ""),
+                        image_url=None,
+                        asset_id=asset_id,
                         sort_order=sort_order,
                         status=img_data.get("status", "pending_review"),
                     ))
@@ -298,30 +351,83 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
 
         elif node_name == "generate_character":
             if output.get("character_image_url"):
+                task = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                media = MediaService(db, create_rustfs_storage(settings))
+                asset = await media.create_from_remote(
+                    owner_user_id=task.user_id,
+                    category="character_image",
+                    source_url=output["character_image_url"],
+                    filename=f"{task_id}-character.bin",
+                    fetch=_fetch_provider_media,
+                    task_id=task.id,
+                    source_provider="image-provider",
+                    idempotency_key=f"task:{task_id}:character-image",
+                )
                 gi = GeneratedImage(
                     task_id=task_id, prompt="character",
-                    image_url=output["character_image_url"],
+                    image_url=None,
+                    asset_id=asset.id,
                     sort_order=0, status="pending_review",
                 )
                 db.add(gi)
                 await db.commit()
 
         elif node_name == "generate_video_clips":
-            # Persist video clip URLs for retry resilience
             if output.get("video_clips"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                media = MediaService(db, create_rustfs_storage(settings))
+                asset_ids = []
+                for index, url in enumerate(output["video_clips"]):
+                    asset = await media.create_from_remote(
+                        owner_user_id=t.user_id, category="video_clip",
+                        source_url=url, filename=f"{task_id}-clip-{index}.mp4",
+                        fetch=_fetch_provider_media, task_id=t.id,
+                        source_provider="video-provider",
+                        idempotency_key=f"task:{task_id}:video-clip:{index}",
+                    )
+                    asset_ids.append(str(asset.id))
+                output["video_clip_asset_ids"] = asset_ids
                 t.status = "video_gen"
                 await db.commit()
 
-        elif node_name == "generate_voiceover":
+        elif node_name in ("generate_voiceover", "generate_clips_and_voiceover", "generate_tts_and_lipsync"):
             if output.get("tts_audio_url"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                media = MediaService(db, create_rustfs_storage(settings))
+                asset = await media.create_from_remote(
+                    owner_user_id=t.user_id, category="tts_audio",
+                    source_url=output["tts_audio_url"], filename=f"{task_id}-voice.wav",
+                    fetch=_fetch_provider_media, task_id=t.id,
+                    source_provider="tts-provider",
+                    idempotency_key=f"task:{task_id}:tts-audio",
+                )
+                output["tts_audio_asset_id"] = str(asset.id)
+                if output.get("lipsync_video_url"):
+                    lipsync = await media.create_from_remote(
+                        owner_user_id=t.user_id, category="lipsync_video",
+                        source_url=output["lipsync_video_url"],
+                        filename=f"{task_id}-lipsync.mp4",
+                        fetch=_fetch_provider_media, task_id=t.id,
+                        source_provider="lipsync-provider",
+                        idempotency_key=f"task:{task_id}:lipsync-video",
+                    )
+                    output["lipsync_video_asset_id"] = str(lipsync.id)
                 t.status = "compositing"
                 await db.commit()
 
         elif node_name in ("composite_video", "composite"):
             if output.get("final_video_path"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
-                t.result_video_url = output["final_video_path"]
+                media = MediaService(db, create_rustfs_storage(settings))
+                asset = await media.create_from_remote(
+                    owner_user_id=t.user_id, category="final_video",
+                    source_url=output["final_video_path"], filename=f"{task_id}-final.mp4",
+                    fetch=_fetch_provider_media, task_id=t.id,
+                    source_provider="renderer",
+                    idempotency_key=f"task:{task_id}:final-video",
+                )
+                output["final_video_asset_id"] = str(asset.id)
+                t.result_video_asset_id = asset.id
+                t.result_video_url = None
                 t.status = "done"
                 await db.commit()

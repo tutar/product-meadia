@@ -15,9 +15,15 @@ def build_main_image_prompt(draft):
         f'Product details: {product_details}'
     )
 
-async def create_candidate(db,user_id,draft):
+async def create_candidate(db,user_id,draft,media,fetch):
     url=await generate_image(build_main_image_prompt(draft))
-    c=MainImageCandidate(user_id=user_id,image_url=url,expires_at=datetime.now(timezone.utc)+timedelta(hours=24))
+    asset=await media.create_from_remote(
+        owner_user_id=user_id, category="product_image", source_url=url,
+        filename=f"candidate-{user_id}.png", fetch=fetch,
+        source_provider="image-provider",
+        idempotency_key=f"candidate:{user_id}:{url}",
+    )
+    c=MainImageCandidate(user_id=user_id,image_url="",asset_id=asset.id,expires_at=datetime.now(timezone.utc)+timedelta(hours=24))
     db.add(c); await db.flush(); return c
 
 async def consume_candidate(db,user_id,candidate_id):

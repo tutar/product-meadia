@@ -16,7 +16,7 @@ def build_product_snapshot(product, category) -> dict:
         "description": product.description,
         "selling_points": list(product.selling_points or []),
         "scenarios": list(product.scenarios or []),
-        "main_image_url": product.main_image_url,
+        "main_image_asset_id": str(product.main_image_asset_id) if product.main_image_asset_id else None,
         "main_image_source": product.main_image_source,
         "category": {"id": str(category.id), "name": category.name, "template_version": category.template_version},
         "attributes": attributes,
