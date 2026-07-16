@@ -11,6 +11,7 @@
     "logout": "退出"
   },
   "catalog": {"title":"品类","subtitle":"管理可复用的商品属性模板。","new":"新建品类","edit":"编辑","delete":"删除","name":"名称","description":"描述","key":"键","label":"标签","type":"类型","options":"选项","required":"必填","up":"上移","down":"下移","remove":"删除属性","addAttribute":"添加属性","save":"保存","products":"{{count}} 个商品","errors":{"load":"无法加载品类","save":"保存失败","conflict":"模板已变更，请刷新后重试。"}},
+  "products":{"title":"商品","new":"新建商品","search":"搜索","category":"品类","allCategories":"全部品类","filter":"筛选","edit":"编辑","delete":"删除","tasks":"{{count}} 个任务","deleteWarning":"该商品已有 {{count}} 个任务，仍要删除吗？","deleteConfirm":"确认删除该商品？","errors":{"load":"无法加载商品","delete":"无法删除商品"},"form":{"new":"新建商品","edit":"编辑商品","name":"名称","description":"描述","sellingPoints":"卖点（逗号分隔）","scenarios":"场景（逗号分隔）","categoryChange":"切换品类会清空属性","chooseCategory":"选择品类","file":"上传图片","uploadPreview":"上传预览","imageUrl":"图片 URL","generate":"生成 AI 主图","regenerate":"重新生成","aiError":"图片生成失败，请重试。","aiPreview":"AI 候选图","confirm":"确认图片","save":"保存"}},
   "auth": {
     "signIn": "登录",
     "signInTo": "登录到",
