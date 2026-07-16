@@ -2,10 +2,11 @@ import { useState, useEffect, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
+import { catalogApi, type Product } from "../api/catalog";
 
 export default function CreateTaskPage() {
   const { t } = useTranslation();
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState("");
   const [type, setType] = useState("promo");
   const [imageCount, setImageCount] = useState(4);
@@ -14,7 +15,7 @@ export default function CreateTaskPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get("/products").then(r => setProducts(r.data.items)).catch(() => {});
+    catalogApi.listProducts().then(r => setProducts(r.items)).catch(() => {});
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -46,7 +47,7 @@ export default function CreateTaskPage() {
             <label className="form-label">{t("task.selectProduct")}</label>
             <select className="select" value={productId} onChange={e => setProductId(e.target.value)} required>
               <option value="">{t("task.selectProduct")}</option>
-              {products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.category?.name ? ` · ${p.category.name}` : ""}</option>)}
             </select>
             {products.length === 0 && <p className="text-muted text-sm mt-3">{t("task.noProducts")}</p>}
           </div>

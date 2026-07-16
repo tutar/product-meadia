@@ -143,6 +143,7 @@
     "done": "已完成",
     "failed": "失败"
   },
+  "initialization": {"pending":"正在准备样例商品，你现在也可以手动创建。","failed":"样例初始化失败，仍可手动创建。","manual":"手动创建"},
   "types": {
     "promo": "宣传视频",
     "viral": "爆款仿拍",

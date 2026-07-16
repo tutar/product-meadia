@@ -143,6 +143,7 @@
     "done": "Complete",
     "failed": "Failed"
   },
+  "initialization": {"pending":"Sample products are being prepared. You can create products now.","failed":"Sample setup failed; manual creation remains available.","manual":"Create manually"},
   "types": {
     "promo": "Promo",
     "viral": "Viral Remix",
