@@ -234,6 +234,18 @@ async def _async_run(task_id: str, celery_task_id: str):
             t.status = "done"
             if final_video:
                 t.result_video_url = final_video
+                # The durable path is the Media Asset reference; URL remains
+                # only a backwards-compatible runtime field during migration.
+                final_asset_id = next(
+                    (
+                        output.get("final_video_asset_id")
+                        for output in (node_output or {},)
+                        if output.get("final_video_asset_id")
+                    ),
+                    None,
+                )
+                if final_asset_id:
+                    t.result_video_asset_id = final_asset_id
             await db.commit()
         await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
 
@@ -327,5 +339,7 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
             if output.get("final_video_path"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                 t.result_video_url = output["final_video_path"]
+                if output.get("final_video_asset_id"):
+                    t.result_video_asset_id = output["final_video_asset_id"]
                 t.status = "done"
                 await db.commit()

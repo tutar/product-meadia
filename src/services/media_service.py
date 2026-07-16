@@ -38,6 +38,34 @@ class MediaService:
     def checksum(data: bytes) -> str:
         return hashlib.sha256(data).hexdigest()
 
+    async def create_from_remote(
+        self,
+        *,
+        owner_user_id: uuid.UUID,
+        category: str,
+        source_url: str,
+        filename: str,
+        fetch,
+        content_type: str = "application/octet-stream",
+        product_id: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
+        source_provider: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> MediaAsset:
+        """Persist a provider result without ever storing its URL as durable state."""
+        data, detected_type = await fetch(source_url)
+        return await self.create_asset(
+            owner_user_id=owner_user_id,
+            category=category,
+            data=data,
+            content_type=detected_type or content_type,
+            filename=filename,
+            product_id=product_id,
+            task_id=task_id,
+            source_provider=source_provider,
+            idempotency_key=idempotency_key,
+        )
+
     async def create_asset(
         self,
         *,
