@@ -7,6 +7,7 @@ from uuid import UUID
 from src.database import get_async_session
 from src.models.user import User
 from src.models.product import Product
+from src.models.category import Category
 from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
@@ -21,6 +22,7 @@ from src.tasks.recovery import is_stale_task
 from src.services.product_context import build_product_snapshot
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "compositing")
 
 
 async def owned_task(db, user, task_id):
@@ -38,13 +40,31 @@ async def create_task(
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
-    product_result = await db.execute(select(Product).where(Product.id == body.product_id, Product.user_id == user.id).options(selectinload(Product.category)))
+    product_result = await db.execute(
+        select(Product)
+        .where(Product.id == body.product_id, Product.user_id == user.id)
+        .options(selectinload(Product.category).selectinload(Category.attributes))
+    )
     product = product_result.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
     if body.type == "viral" and not body.viral_url:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="viral_url required for viral type")
+
+    existing = (await db.execute(
+        select(VideoTask).where(
+            VideoTask.user_id == user.id,
+            VideoTask.product_id == body.product_id,
+            VideoTask.type == body.type,
+            VideoTask.status.in_(ACTIVE_TASK_STATUSES),
+        ).order_by(VideoTask.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": "An active task already exists", "task_id": str(existing.id)},
+        )
 
     task = VideoTask(
         user_id=user.id,
@@ -55,6 +75,13 @@ async def create_task(
         status="pending",
     )
     db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    from src.tasks.video_tasks import run_video_task
+    celery_result = run_video_task.delay(str(task.id))
+    task.celery_task_id = celery_result.id
+    task.status = "scripting"
     await db.commit()
     await db.refresh(task)
 

@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { catalogApi, type Category, type InitializationStatus, type Product } from "../api/catalog";
 
 export default function ProductsPage() {
   const { t } = useTranslation(); const [items, setItems] = useState<Product[]>([]); const [categories, setCategories] = useState<Category[]>([]); const [initialization, setInitialization] = useState<InitializationStatus | null>(null); const [search, setSearch] = useState(""); const [category, setCategory] = useState(""); const [error, setError] = useState("");
+  const deletingRef = useRef(new Set<string>());
   const load = () => void catalogApi.listProducts({ ...(search ? { name: search } : {}), ...(category ? { category_id: category } : {}) }).then(result => setItems(result.items)).catch(() => setError(t("products.errors.load")));
   useEffect(() => { load(); void catalogApi.listCategories().then(setCategories); let timer: number | undefined; let disposed = false; const check = async () => { try { const status = await catalogApi.getInitializationStatus(); if (disposed) return; setInitialization(status); if (status.status === "pending") timer = window.setTimeout(() => void check(), 2000); } catch { if (disposed) return; setError(t("initialization.unavailable")); timer = window.setTimeout(() => void check(), 4000); } }; void check(); return () => { disposed = true; if (timer) window.clearTimeout(timer); }; }, []);
-  const remove = async (product: Product) => { if (product.task_count && !window.confirm(t("products.deleteWarning", { count: product.task_count }))) return; if (!window.confirm(t("products.deleteConfirm"))) return; try { await catalogApi.deleteProduct(product.id); load(); } catch { setError(t("products.errors.delete")); } };
+  const remove = async (product: Product) => { if (deletingRef.current.has(product.id)) return; if (product.task_count && !window.confirm(t("products.deleteWarning", { count: product.task_count }))) return; if (!window.confirm(t("products.deleteConfirm"))) return; deletingRef.current.add(product.id); try { await catalogApi.deleteProduct(product.id); load(); } catch { setError(t("products.errors.delete")); } finally { deletingRef.current.delete(product.id); } };
   return <section className="catalog-page">
     {initialization?.status === "pending" && <div className="notice notice-info"><span className="status-dot pulse" />{t("initialization.pending")}<Link to="/products/new">{t("initialization.manual")} →</Link></div>}
     {initialization?.status === "failed" && <div role="status" className="notice notice-error">{t("initialization.failed")}<Link to="/products/new">{t("initialization.manual")} →</Link></div>}

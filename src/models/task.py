@@ -16,6 +16,7 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     error_message = Column(Text, nullable=True)
     result_video_url = Column(Text, nullable=True)
     celery_task_id = Column(String(255), nullable=True)
+    progress_log = Column(JSONB, nullable=False, default=list)
     user = relationship("User")
     product = relationship("Product")
     script = relationship("Script", back_populates="task", uselist=False)

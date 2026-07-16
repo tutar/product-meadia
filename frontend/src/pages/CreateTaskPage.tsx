@@ -1,6 +1,7 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 import api from "../api/client";
 import { catalogApi, type Product } from "../api/catalog";
 
@@ -12,6 +13,8 @@ export default function CreateTaskPage() {
   const [imageCount, setImageCount] = useState(4);
   const [viralUrl, setViralUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const submittingRef = useRef(false);
   const navigate = useNavigate();
   const selectedProduct = products.find(product => product.id === productId);
 
@@ -21,6 +24,9 @@ export default function CreateTaskPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setError("");
     setLoading(true);
     try {
       const { data } = await api.post("/tasks", {
@@ -29,7 +35,13 @@ export default function CreateTaskPage() {
         viral_url: type === "viral" ? viralUrl : undefined,
       });
       navigate(`/tasks/${data.id}`);
-    } finally { setLoading(false); }
+    } catch (cause) {
+      if (axios.isAxiosError(cause) && cause.response?.status === 409) {
+        const taskId = cause.response.data?.detail?.task_id;
+        if (taskId) { navigate(`/tasks/${taskId}`); return; }
+      }
+      setError(t("task.createError"));
+    } finally { submittingRef.current = false; setLoading(false); }
   };
 
   const types = [
@@ -82,6 +94,7 @@ export default function CreateTaskPage() {
           )}
         </div>
 
+        {error && <p role="alert" className="notice notice-error mb-4">{error}</p>}
         <button className="btn btn-primary btn-lg" type="submit" disabled={loading || !productId}>
           {loading ? t("task.creating") : t("task.generate")}
         </button>

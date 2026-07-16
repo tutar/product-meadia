@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { useTranslation } from "react-i18next";
 import { catalogApi, type AttributeType, type Category, type CategoryAttribute, type CategoryInput } from "../api/catalog";
@@ -12,14 +12,15 @@ export default function CategoriesPage() {
   const [editing, setEditing] = useState<Category | null | undefined>();
   const [name, setName] = useState(""); const [description, setDescription] = useState("");
   const [attributes, setAttributes] = useState<CategoryAttribute[]>([]); const [error, setError] = useState("");
+  const actionRef = useRef(new Set<string>());
   const load = () => { void catalogApi.listCategories().then(setItems).catch(() => setError(t("catalog.errors.load"))); };
   useEffect(() => { load(); }, []);
   const open = (category?: Category) => { setEditing(category ?? null); setName(category?.name ?? ""); setDescription(category?.description ?? ""); setAttributes(category?.attributes.map(a => ({ ...a, options: [...a.options] })) ?? []); };
   const updateRow = (index: number, patch: Partial<CategoryAttribute>) => setAttributes(rows => rows.map((row, i) => i === index ? { ...row, ...patch } : row));
   const move = (index: number, delta: number) => setAttributes(rows => { const next = [...rows]; const target = index + delta; if (target < 0 || target >= next.length) return rows; [next[index], next[target]] = [next[target], next[index]]; return next; });
   const message = (cause: unknown) => { if (axios.isAxiosError(cause)) { if (cause.response?.status === 409) return t("catalog.errors.conflict"); const detail = cause.response?.data?.detail; if (typeof detail === "string") return detail; if (detail && typeof detail === "object") return Object.values(detail).join(", "); } return t("catalog.errors.save"); };
-  const save = async () => { const input: CategoryInput = { name, description: description || null, template_version: editing?.template_version, attributes: attributes.map(({ id: _id, ...a }, i) => ({ ...a, sort_order: i })) }; try { const saved = editing ? await catalogApi.updateCategory(editing.id, input) : await catalogApi.createCategory(input); setItems(old => editing ? old.map(x => x.id === saved.id ? saved : x) : [...old, saved]); setEditing(undefined); } catch (cause) { setError(message(cause)); } };
-  const remove = async (item: Category) => { try { await catalogApi.deleteCategory(item.id); load(); } catch (cause) { setError(message(cause)); } };
+  const save = async () => { if (actionRef.current.has("save")) return; actionRef.current.add("save"); const input: CategoryInput = { name, description: description || null, template_version: editing?.template_version, attributes: attributes.map(({ id: _id, ...a }, i) => ({ ...a, sort_order: i })) }; try { const saved = editing ? await catalogApi.updateCategory(editing.id, input) : await catalogApi.createCategory(input); setItems(old => editing ? old.map(x => x.id === saved.id ? saved : x) : [...old, saved]); setEditing(undefined); } catch (cause) { setError(message(cause)); } finally { actionRef.current.delete("save"); } };
+  const remove = async (item: Category) => { const key = `delete:${item.id}`; if (actionRef.current.has(key)) return; actionRef.current.add(key); try { await catalogApi.deleteCategory(item.id); load(); } catch (cause) { setError(message(cause)); } finally { actionRef.current.delete(key); } };
   const attributeCount = items.reduce((total, item) => total + item.attributes.length, 0);
   return <section className="catalog-page">
     <header className="workspace-header"><div><span className="eyebrow">{t("catalog.title").toUpperCase()}</span><h1>{t("catalog.title")}</h1><p className="text-secondary">{t("catalog.subtitle")}</p></div><button className="btn btn-primary" onClick={() => open()}><span aria-hidden="true">＋</span> {t("catalog.new")}</button></header>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -22,6 +22,7 @@ export default function ProductFormPage() {
   const [candidate, setCandidate] = useState<MainImageCandidate | null>(null);
   const [candidateState, setCandidateState] = useState<CandidateState>("idle");
   const [saveError, setSaveError] = useState(""); const [saving, setSaving] = useState(false);
+  const saveRef = useRef(false); const generateRef = useRef(false);
 
   useEffect(() => {
     void catalogApi.listCategories().then(setCategories);
@@ -37,12 +38,13 @@ export default function ProductFormPage() {
     description: description || null, selling_points: sellingPoints.split(",").map(x=>x.trim()).filter(Boolean), scenarios: scenarios.split(",").map(x=>x.trim()).filter(Boolean), attributes,
     ...(candidateState === "confirmed" && candidate ? { main_image_candidate_id: candidate.candidate_id } : imageUrl ? { main_image_url: imageUrl } : {}),
   });
-  const generate = async () => { setCandidateState("generating"); try { setCandidate(await catalogApi.generateMainImage(draft())); setCandidateState("preview"); } catch { setCandidateState("error"); } };
+  const generate = async () => { if (generateRef.current) return; generateRef.current = true; setCandidateState("generating"); try { setCandidate(await catalogApi.generateMainImage(draft())); setCandidateState("preview"); } catch { setCandidateState("error"); } finally { generateRef.current = false; } };
   const save = async () => {
+    if (saveRef.current) return;
     if (!categoryId || !name || !requiredValid || (!imageUrl && candidateState !== "confirmed")) {
       setSaveError(t("products.form.validationError")); return;
     }
-    setSaveError(""); setSaving(true);
+    saveRef.current = true; setSaveError(""); setSaving(true);
     try {
       if (id) await catalogApi.updateProduct(id, draft());
       else await catalogApi.createProduct(draft());
@@ -52,7 +54,7 @@ export default function ProductFormPage() {
         const detail = cause.response?.data?.detail;
         setSaveError(typeof detail === "string" ? detail : t("products.form.saveError"));
       } else setSaveError(t("products.form.saveError"));
-    } finally { setSaving(false); }
+    } finally { saveRef.current = false; setSaving(false); }
   };
   const requiredValid = category?.attributes.every(attribute => !attribute.required || (attribute.type === "boolean" ? typeof attributes[attribute.key] === "boolean" : Array.isArray(attributes[attribute.key]) ? (attributes[attribute.key] as unknown[]).length > 0 : attributes[attribute.key] !== undefined && attributes[attribute.key] !== "")) ?? false;
 

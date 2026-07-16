@@ -23,6 +23,7 @@
     "signingIn": "登录中...",
     "createButton": "创建账号",
     "creating": "创建中...",
+    "createError": "视频任务创建失败，请重试。",
     "noAccount": "还没有账号？",
     "hasAccount": "已有账号？",
     "createOne": "创建一个",

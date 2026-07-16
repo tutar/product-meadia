@@ -64,6 +64,7 @@
     "viralUrlPlaceholder": "https://www.tiktok.com/@user/video/...",
     "generate": "Generate Video",
     "creating": "Creating...",
+    "createError": "Unable to create the video task. Please try again.",
     "promoTitle": "Promotional Video",
     "viralTitle": "Viral Remix",
     "personifyTitle": "Personification",

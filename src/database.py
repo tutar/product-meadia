@@ -36,6 +36,15 @@ async def ensure_schema() -> None:
                 "ALTER TABLE products ADD COLUMN IF NOT EXISTS "
                 f"{column} {definition}"
             ))
+        legacy_task_columns = {
+            "user_id": "UUID",
+            "product_snapshot": "JSONB NOT NULL DEFAULT '{}'::jsonb",
+        }
+        for column, definition in legacy_task_columns.items():
+            await connection.execute(text(
+                "ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS "
+                f"{column} {definition}"
+            ))
 
 
 async def get_async_session() -> AsyncSession:

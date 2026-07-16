@@ -78,7 +78,7 @@ def test_video_task_model_fields():
     assert hasattr(VideoTask, "user_id")
     assert hasattr(VideoTask, "product_id")
     assert hasattr(VideoTask, "product_snapshot")
-    assert not hasattr(VideoTask, "progress_log")
+    assert hasattr(VideoTask, "progress_log")
     assert hasattr(VideoTask, "type")
     assert hasattr(VideoTask, "status")
     assert hasattr(VideoTask, "image_count")

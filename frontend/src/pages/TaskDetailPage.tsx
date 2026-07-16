@@ -29,6 +29,7 @@ function ResumeButton({ taskId, onResumed }: { taskId: string; onResumed: () => 
 const REVIEW_STATES = ["script_review", "image_review", "character_review"];
 const FINAL_STATES = ["done", "failed"];
 const STEPS_DISPLAY = ["pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
+const SCRIPT_AVAILABLE_STATES = ["script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 
 function stepIndex(status: string) { return Math.max(0, STEPS_DISPLAY.indexOf(status)); }
 
@@ -42,12 +43,22 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const actionRef = useRef(new Set<string>());
+  const [busyActions, setBusyActions] = useState<string[]>([]);
+  const runAction = async (key: string, action: () => Promise<void>) => {
+    if (actionRef.current.has(key)) return;
+    actionRef.current.add(key); setBusyActions([...actionRef.current]);
+    try { await action(); } finally { actionRef.current.delete(key); setBusyActions([...actionRef.current]); }
+  };
 
   const fetchData = useCallback(async () => {
     if (!id) return;
-    const [tdata, sdata, idata] = await Promise.all([
-      api.get(`/tasks/${id}`).then(r => r.data).catch(() => null),
-      api.get(`/tasks/${id}/script`).then(r => r.data).catch(() => null),
+    const tdata = await api.get(`/tasks/${id}`).then(r => r.data).catch(() => null);
+    if (!tdata) return;
+    const [sdata, idata] = await Promise.all([
+      SCRIPT_AVAILABLE_STATES.includes(tdata.status)
+        ? api.get(`/tasks/${id}/script`).then(r => r.data).catch(() => null)
+        : Promise.resolve(null),
       api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
     ]);
     if (tdata) setTask(tdata);
@@ -83,39 +94,23 @@ export default function TaskDetailPage() {
   }, [task?.status, fetchData]);
 
   const doResume = async () => {
-    setLoading(true);
-    await api.post(`/tasks/${id}/resume`);
-    await fetchData();
-    setLoading(false);
+    await runAction("resume", async () => { setLoading(true); try { await api.post(`/tasks/${id}/resume`); await fetchData(); } finally { setLoading(false); } });
   };
 
   const approveScript = async () => {
-    setLoading(true);
-    await api.put(`/tasks/${id}/script`, { approved: true, edited_content: editedContent });
-    await fetchData();
-    setLoading(false);
+    await runAction("script", async () => { setLoading(true); try { await api.put(`/tasks/${id}/script`, { approved: true, edited_content: editedContent }); await fetchData(); } finally { setLoading(false); } });
   };
 
   const approveCharacter = async () => {
-    setLoading(true);
-    await api.put(`/tasks/${id}/script`, { approved: true });
-    await fetchData();
-    setLoading(false);
+    await runAction("character", async () => { setLoading(true); try { await api.put(`/tasks/${id}/script`, { approved: true }); await fetchData(); } finally { setLoading(false); } });
   };
 
   const reviewImage = async (imageId: string, action: "approve" | "reject") => {
-    await api.put(`/tasks/${id}/images/${imageId}`, { action });
-    const { data } = await api.get(`/tasks/${id}/images`);
-    setImages(data);
-    if (data.every((i: any) => i.status === "approved")) {
-      await fetchData();
-    }
+    await runAction(`image:${imageId}`, async () => { await api.put(`/tasks/${id}/images/${imageId}`, { action }); const { data } = await api.get(`/tasks/${id}/images`); setImages(data); if (data.every((i: any) => i.status === "approved")) await fetchData(); });
   };
 
   const regenerateImage = async (imageId: string) => {
-    await api.post(`/tasks/${id}/images/${imageId}/regenerate`);
-    const { data } = await api.get(`/tasks/${id}/images`);
-    setImages(data);
+    await runAction(`image:${imageId}`, async () => { await api.post(`/tasks/${id}/images/${imageId}/regenerate`); const { data } = await api.get(`/tasks/${id}/images`); setImages(data); });
   };
 
   if (!task) return <div className="empty-state"><p>{t("task.loading")}</p></div>;
@@ -219,7 +214,7 @@ export default function TaskDetailPage() {
       {task.error_message && (
         <div className="card mb-6" style={{ borderColor: "var(--danger)", background: "rgba(248,113,113,0.06)" }}>
           <p className="text-danger text-sm">{task.error_message}</p>
-          <button className="btn btn-primary btn-sm mt-4" onClick={doResume}>{t("task.retry")}</button>
+          <button className="btn btn-primary btn-sm mt-4" disabled={busyActions.includes("resume")} onClick={doResume}>{t("task.retry")}</button>
         </div>
       )}
 
@@ -282,13 +277,13 @@ export default function TaskDetailPage() {
                 {task.status === "image_review" && (
                   <div className="image-actions">
                     {img.status === "pending_review" && img.image_url && (
-                      <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>{t("task.approve")}</button>
+                      <button className="btn btn-primary btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>{t("task.approve")}</button>
                     )}
                     {img.status !== "approved" && (
-                      <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => reviewImage(img.id, "reject")}>{t("task.reject")}</button>
+                      <button className="btn btn-ghost btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => reviewImage(img.id, "reject")}>{t("task.reject")}</button>
                     )}
                     {img.status === "rejected" && (
-                      <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => regenerateImage(img.id)}>{t("task.regen")}</button>
+                      <button className="btn btn-ghost btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => regenerateImage(img.id)}>{t("task.regen")}</button>
                     )}
                   </div>
                 )}
