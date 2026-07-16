@@ -13,6 +13,7 @@ export default function CreateTaskPage() {
   const [viralUrl, setViralUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const selectedProduct = products.find(product => product.id === productId);
 
   useEffect(() => {
     catalogApi.listProducts().then(r => setProducts(r.items)).catch(() => {});
@@ -50,6 +51,7 @@ export default function CreateTaskPage() {
               {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.category?.name ? ` · ${p.category.name}` : ""}</option>)}
             </select>
             {products.length === 0 && <p className="text-muted text-sm mt-3">{t("task.noProducts")}</p>}
+            {selectedProduct && <div className="card mt-4 flex items-center gap-4">{selectedProduct.main_image_url && <img src={selectedProduct.main_image_url} alt={selectedProduct.name} width="88" height="88" />}<div><strong>{selectedProduct.name}</strong>{selectedProduct.category?.name && <p className="text-secondary">{selectedProduct.category.name}</p>}</div></div>}
           </div>
         </div>
 
