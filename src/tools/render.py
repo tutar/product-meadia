@@ -13,8 +13,9 @@ async def render_hyperframes(html_content: str, asset_dir: str = "/tmp") -> str:
     with open(html_path, "w") as f:
         f.write(html_content)
 
-    proc = await asyncio.create_subprocess_exec(
-        "hyperframes", "render", workdir, "--output", output_path,
+    cmd = f"export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; hyperframes render {workdir} --output {output_path}"
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=workdir,
