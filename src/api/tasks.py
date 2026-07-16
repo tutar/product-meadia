@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -251,8 +252,22 @@ async def download_video(
     task = result.scalar_one_or_none()
     if not task or task.status != "done":
         raise HTTPException(status_code=404, detail="Video not ready")
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url=task.result_video_url)
+    video_url = task.result_video_url
+    if not video_url:
+        raise HTTPException(status_code=404, detail="Video not ready")
+
+    # Rendered videos are currently stored as local files by HyperFrames.  A
+    # filesystem path is not a usable browser URL, so stream it through the
+    # authenticated API endpoint. Keep supporting remote URLs for providers
+    # that return an object-storage URL.
+    if video_url.startswith(("http://", "https://")):
+        return RedirectResponse(url=video_url)
+
+    from pathlib import Path
+    path = Path(video_url)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Video file not found")
+    return FileResponse(path, media_type="video/mp4", filename="video.mp4")
 
 
 @router.post("/viral/analyze", response_model=ViralAnalysisResponse, status_code=status.HTTP_200_OK)

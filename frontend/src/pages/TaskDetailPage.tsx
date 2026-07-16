@@ -40,6 +40,7 @@ export default function TaskDetailPage() {
   const [images, setImages] = useState<any[]>([]);
   const [editedContent, setEditedContent] = useState("");
   const [loading, setLoading] = useState(false);
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -55,6 +56,22 @@ export default function TaskDetailPage() {
   }, [id]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Local HyperFrames outputs are served by the authenticated API endpoint;
+  // fetch them with axios so the bearer token is included, then give the
+  // video element a browser-readable object URL.
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    if (!task?.result_video_url || !id) {
+      setVideoSrc(null);
+      return;
+    }
+    api.get(`/tasks/${id}/video`, { responseType: "blob" }).then((response) => {
+      objectUrl = URL.createObjectURL(response.data);
+      setVideoSrc(objectUrl);
+    }).catch(() => setVideoSrc(null));
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [task?.result_video_url, id]);
 
   useEffect(() => {
     if (!task || FINAL_STATES.includes(task.status) || REVIEW_STATES.includes(task.status)) {
@@ -207,17 +224,17 @@ export default function TaskDetailPage() {
               <p style={{ fontWeight: 600, marginBottom: 4, color: "var(--success)" }}>{t("task.videoComplete")}</p>
               <p className="text-secondary text-sm">{task.result_video_url ? t("task.videoReady") : t("task.videoPending")}</p>
             </div>
-            {task.result_video_url && (
-              <a href={task.result_video_url} download className="btn btn-primary btn-sm" style={{ textDecoration: "none" }}>{t("task.download")}</a>
+            {task.result_video_url && videoSrc && (
+              <a href={videoSrc} download="video.mp4" className="btn btn-primary btn-sm" style={{ textDecoration: "none" }}>{t("task.download")}</a>
             )}
           </div>
         </div>
       )}
 
-      {task.result_video_url && (
+      {videoSrc && (
         <div className="card mb-6">
           <h3 className="mb-4">{t("task.yourVideo")}</h3>
-          <video src={task.result_video_url} controls style={{ width: "100%", borderRadius: "var(--radius)" }} />
+          <video src={videoSrc} controls style={{ width: "100%", borderRadius: "var(--radius)" }} />
         </div>
       )}
 
