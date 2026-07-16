@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from src.tools.video_gen import generate_video
 
 
-def _get_side_effect(status_url_prefix):
+def _get_side_effect():
     """Return different responses based on URL: status check vs content download."""
     mock_status = MagicMock()
     mock_status.raise_for_status = MagicMock()
@@ -28,7 +28,7 @@ async def test_generate_video_text_to_video():
     mock_resp1.json.return_value = {"id": "vid_123", "status": "queued"}
 
     post_mock = AsyncMock(return_value=mock_resp1)
-    get_mock = AsyncMock(side_effect=_get_side_effect(""))
+    get_mock = AsyncMock(side_effect=_get_side_effect())
 
     with patch("src.tools.video_gen.httpx.AsyncClient") as mock_client:
         mock_client.return_value.__aenter__.return_value.post = post_mock
@@ -42,13 +42,14 @@ async def test_generate_video_text_to_video():
 
 
 @pytest.mark.asyncio
-async def test_generate_video_keyframe_mode():
+async def test_generate_video_single_image():
+    """Single image: image_url set, no keyframes mode."""
     mock_resp1 = MagicMock()
     mock_resp1.raise_for_status = MagicMock()
     mock_resp1.json.return_value = {"id": "vid_456", "status": "queued"}
 
     post_mock = AsyncMock(return_value=mock_resp1)
-    get_mock = AsyncMock(side_effect=_get_side_effect(""))
+    get_mock = AsyncMock(side_effect=_get_side_effect())
 
     with patch("src.tools.video_gen.httpx.AsyncClient") as mock_client:
         mock_client.return_value.__aenter__.return_value.post = post_mock
@@ -56,9 +57,35 @@ async def test_generate_video_keyframe_mode():
         with patch("src.tools.video_gen.asyncio.sleep", new_callable=AsyncMock):
             with patch("tempfile.NamedTemporaryFile", MagicMock()):
                 with patch("builtins.open", MagicMock()):
-                    url = await generate_video("Keyframe", image_urls=["https://img.example.com/1.png"])
+                    url = await generate_video("Single img", image_urls=["https://img.example.com/1.png"])
                     assert url.endswith(".mp4")
-                    assert post_mock.call_args.kwargs["json"]["mode"] == "keyframes"
+                    json_body = post_mock.call_args.kwargs["json"]
+                    assert json_body["image"] == "https://img.example.com/1.png"
+                    assert "mode" not in json_body
+
+
+@pytest.mark.asyncio
+async def test_generate_video_keyframe_mode():
+    """2+ images: keyframes mode with image list."""
+    mock_resp1 = MagicMock()
+    mock_resp1.raise_for_status = MagicMock()
+    mock_resp1.json.return_value = {"id": "vid_789", "status": "queued"}
+
+    post_mock = AsyncMock(return_value=mock_resp1)
+    get_mock = AsyncMock(side_effect=_get_side_effect())
+
+    with patch("src.tools.video_gen.httpx.AsyncClient") as mock_client:
+        mock_client.return_value.__aenter__.return_value.post = post_mock
+        mock_client.return_value.__aenter__.return_value.get = get_mock
+        with patch("src.tools.video_gen.asyncio.sleep", new_callable=AsyncMock):
+            with patch("tempfile.NamedTemporaryFile", MagicMock()):
+                with patch("builtins.open", MagicMock()):
+                    imgs = ["https://img.example.com/1.png", "https://img.example.com/2.png"]
+                    url = await generate_video("Keyframe", image_urls=imgs)
+                    assert url.endswith(".mp4")
+                    json_body = post_mock.call_args.kwargs["json"]
+                    assert json_body["image"] == imgs
+                    assert json_body["mode"] == "keyframes"
 
 
 @pytest.mark.asyncio

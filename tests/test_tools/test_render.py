@@ -9,7 +9,7 @@ async def test_render_hyperframes_success():
     mock_proc.returncode = 0
     mock_proc.communicate = AsyncMock(return_value=(b"", b""))
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+    with patch("asyncio.create_subprocess_shell", return_value=mock_proc) as mock_exec:
         with patch("tempfile.mkdtemp", return_value="/tmp/hf_test"):
             with patch("builtins.open", MagicMock()):
                 path = await render_hyperframes("<html>test</html>", "/tmp")
@@ -23,7 +23,7 @@ async def test_render_hyperframes_failure_raises():
     mock_proc.returncode = 1
     mock_proc.communicate = AsyncMock(return_value=(b"", b"Render error"))
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+    with patch("asyncio.create_subprocess_shell", return_value=mock_proc) as mock_exec:
         with patch("tempfile.mkdtemp", return_value="/tmp/hf_fail"):
             with patch("builtins.open", MagicMock()):
                 with pytest.raises(RuntimeError, match="HyperFrames render failed"):
