@@ -5,8 +5,10 @@ from langfuse import observe
 
 
 @observe(name="render_hyperframes")
-async def render_hyperframes(html_content: str, asset_dir: str = "/tmp") -> str:
-    workdir = tempfile.mkdtemp(prefix="hyperframes_")
+async def render_hyperframes(html_content: str) -> str:
+    output_root = os.environ.get("VIDEO_OUTPUT_DIR", "/tmp/hyperframes")
+    os.makedirs(output_root, exist_ok=True)
+    workdir = tempfile.mkdtemp(prefix="render_", dir=output_root)
     html_path = os.path.join(workdir, "index.html")
     output_path = os.path.join(workdir, "output.mp4")
 

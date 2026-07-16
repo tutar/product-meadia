@@ -123,7 +123,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             video_elements=video_elements,
             subtitle_elements=subtitle_elements,
         )
-        path = await render_hyperframes(html, "/tmp")
+        path = await render_hyperframes(html)
         return {"hyperframes_html": html, "final_video_path": path}
 
     graph.add_node("generate_script", tracked_node("generate_script", generate_script))

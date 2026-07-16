@@ -124,7 +124,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             video_elements=video_elements,
             subtitle_elements=subtitle_elements,
         )
-        path = await render_hyperframes(html, "/tmp")
+        path = await render_hyperframes(html)
         return {"hyperframes_html": html, "final_video_path": path}
 
     graph.add_node("analyze_source", tracked_node("analyze_source", analyze_source))

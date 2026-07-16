@@ -121,7 +121,7 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
             product_name=state["product_info"]["name"],
             subtitle_elements=subtitle_elements,
         )
-        path = await render_hyperframes(html, "/tmp")
+        path = await render_hyperframes(html)
         return {"hyperframes_html": html, "final_video_path": path}
 
     graph.add_node("generate_character", tracked_node("generate_character", generate_character))
