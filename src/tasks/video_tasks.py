@@ -286,11 +286,14 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 old = existing_map.get(sort_order)
                 if old:
                     old.image_url = img_data.get("image_url", old.image_url)
+                    if img_data.get("asset_id"):
+                        old.asset_id = img_data["asset_id"]
                     old.status = img_data.get("status", old.status)
                 else:
                     db.add(GeneratedImage(
                         task_id=task_id, prompt="",
                         image_url=img_data.get("image_url", ""),
+                        asset_id=img_data.get("asset_id"),
                         sort_order=sort_order,
                         status=img_data.get("status", "pending_review"),
                     ))
@@ -301,6 +304,7 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 gi = GeneratedImage(
                     task_id=task_id, prompt="character",
                     image_url=output["character_image_url"],
+                    asset_id=output.get("character_image_asset_id"),
                     sort_order=0, status="pending_review",
                 )
                 db.add(gi)
