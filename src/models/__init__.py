@@ -8,6 +8,7 @@ from src.models.viral_analysis import ViralAnalysis
 from src.models.catalog_initialization import CatalogInitialization
 from src.models.category import Category, CategoryAttribute
 from src.models.main_image_candidate import MainImageCandidate
+from src.models.outbox_event import OutboxEvent
 
 __all__ = [
     "Base",
@@ -16,6 +17,7 @@ __all__ = [
     "CategoryAttribute",
     "GeneratedImage",
     "MainImageCandidate",
+    "OutboxEvent",
     "Product",
     "Script",
     "User",

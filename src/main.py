@@ -7,6 +7,7 @@ from src.auth.routes import router as auth_router
 from src.api.products import router as products_router
 from src.api.categories import router as categories_router
 from src.api.tasks import router as tasks_router
+from src.api.initialization import router as initialization_router
 from src.ws.progress import progress_manager
 
 # Langfuse v4 reads from env vars automatically
@@ -33,6 +34,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(products_router, prefix="/api/v1")
 app.include_router(categories_router, prefix="/api/v1")
 app.include_router(tasks_router, prefix="/api/v1")
+app.include_router(initialization_router, prefix="/api/v1")
 
 
 @app.websocket("/ws/tasks/{task_id}")
