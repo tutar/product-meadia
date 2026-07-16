@@ -9,6 +9,23 @@ servers:
     description: 本地开发
 
 paths:
+  /media/{asset_id}/access:
+    get:
+      summary: 获取私有媒体临时访问 URL
+      tags: [Media]
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 默认一小时有效的只读 URL
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaAccess" }
+        "404":
+          description: 资产不存在或不属于当前用户
   /categories:
     get:
       summary: 品类列表
@@ -554,6 +571,23 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
   schemas:
+    MediaAsset:
+      type: object
+      required: [id, category, content_type, size_bytes, checksum, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        category: { type: string, enum: [product_image, source_video, generated_image, video_clip, tts_audio, lipsync_video, character_image, final_video] }
+        content_type: { type: string }
+        size_bytes: { type: integer, minimum: 0 }
+        checksum: { type: string, minLength: 64, maxLength: 64 }
+        status: { type: string, enum: [available, unavailable, superseded, pending_delete] }
+        created_at: { type: string, format: date-time }
+    MediaAccess:
+      type: object
+      required: [url, expires_at]
+      properties:
+        url: { type: string, format: uri }
+        expires_at: { type: string, format: date-time }
     AttributeType:
       type: string
       enum: [text, number, single_select, multi_select, boolean]

@@ -8,7 +8,9 @@ class GeneratedImage(Base, UUIDMixin, TimestampMixin):
     task_id = Column(UUID(as_uuid=True), ForeignKey("video_tasks.id", ondelete="CASCADE"), nullable=False)
     prompt = Column(Text, nullable=False)
     image_url = Column(Text, nullable=True)
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
     status = Column(String(20), nullable=False, default="pending_review")
 
     task = relationship("VideoTask", back_populates="images")
+    asset = relationship("MediaAsset")
