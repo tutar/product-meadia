@@ -14,7 +14,7 @@ async def render_hyperframes(html_content: str, asset_dir: str = "/tmp") -> str:
         f.write(html_content)
 
     proc = await asyncio.create_subprocess_exec(
-        "npx", "hyperframes", "render", html_path, "--output", output_path,
+        "hyperframes", "render", workdir, "--output", output_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=workdir,
