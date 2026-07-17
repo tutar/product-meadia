@@ -31,4 +31,6 @@ def test_schema_contains_generic_catalog_and_snapshot():
     ):
         assert f"CREATE TABLE {table}" in ddl
     assert "product_snapshot JSONB" in ddl
+    assert "video_review" in ddl
+    assert "composition_review" in ddl
     assert "top_note" not in ddl

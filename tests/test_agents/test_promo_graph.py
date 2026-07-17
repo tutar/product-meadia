@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.agents.promo_graph import promo_graph
+from src.agents.promo_graph import build_promo_graph, promo_graph
 
 
 @pytest.mark.asyncio
@@ -80,3 +80,25 @@ async def test_promo_graph_single_step_generate_script():
         # Should have generated script and hit interrupt
         event_keys = [list(e.keys())[0] for e in events if e]
         assert "generate_script" in event_keys
+
+
+@pytest.mark.asyncio
+async def test_reused_video_clips_are_marked_so_the_worker_can_continue_after_review():
+    graph = build_promo_graph(interrupt_before=[])
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "script_content": "script", "edited_script_content": "", "image_prompts": ["prompt"],
+        "voiceover_text": "script", "generated_images": [{"image_url": "https://image", "status": "approved"}],
+        "video_clips": ["https://clip"], "tts_audio_url": "", "tts_words": [],
+        "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
+        "hyperframes_html": "", "final_video_path": "", "script_approved": True,
+        "images_approved": True, "review_approved": False, "messages": [],
+    }
+    with patch("src.agents.promo_graph.generate_tts", new_callable=AsyncMock) as tts, patch("src.agents.promo_graph.render_hyperframes", new_callable=AsyncMock) as render:
+        tts.return_value = {"audio_url": "https://audio", "words": []}
+        render.return_value = "/tmp/final.mp4"
+        events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "reuse-clips"}})]
+
+    reused_output = next(event["generate_video_clips"] for event in events if "generate_video_clips" in event)
+    assert reused_output["video_clips_reused"] is True

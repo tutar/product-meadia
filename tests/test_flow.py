@@ -1,6 +1,7 @@
 """Full-flow integration test: API + graph execution (requires all AI services)."""
 import pytest
 import asyncio
+import base64
 import httpx
 from src.config import settings
 
@@ -16,9 +17,36 @@ async def _register_and_login(email: str, password: str) -> str:
         return r.json()["access_token"]
 
 
-async def _create_product(token: str, name: str) -> str:
+async def _create_category(token: str, name: str) -> dict:
     async with httpx.AsyncClient() as c:
-        r = await c.post(f"{API}/products", headers={"Authorization": f"Bearer {token}"}, json={"name": name, "scenarios": ["test"]})
+        response = await c.post(
+            f"{API}/categories", headers={"Authorization": f"Bearer {token}"},
+            json={"name": name, "attributes": []},
+        )
+        assert response.status_code == 201, response.text
+        return response.json()
+
+
+async def _upload_main_image(token: str) -> str:
+    pixel = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl5W3cAAAAASUVORK5CYII=")
+    async with httpx.AsyncClient() as c:
+        response = await c.post(
+            f"{API}/products/main-image/upload", headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("product.png", pixel, "image/png")},
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["asset_id"]
+
+
+async def _create_product(token: str, name: str) -> str:
+    category = await _create_category(token, f"{name} category")
+    asset_id = await _upload_main_image(token)
+    async with httpx.AsyncClient() as c:
+        r = await c.post(f"{API}/products", headers={"Authorization": f"Bearer {token}"}, json={
+            "category_id": category["id"], "category_template_version": category["template_version"],
+            "name": name, "scenarios": ["test"], "main_image_asset_id": asset_id,
+        })
+        assert r.status_code == 201, r.text
         return r.json()["id"]
 
 
@@ -57,6 +85,17 @@ async def _approve_all_images(token: str, task_id: str):
     await _resume(token, task_id)
 
 
+async def _approve_current_video_candidates(token: str, task_id: str, kind: str):
+    async with httpx.AsyncClient() as c:
+        response = await c.get(f"{API}/tasks/{task_id}/video-candidates", headers={"Authorization": f"Bearer {token}"})
+        for candidate in response.json():
+            if candidate["kind"] == kind and candidate["is_current"] and candidate["status"] != "approved":
+                await c.put(
+                    f"{API}/tasks/{task_id}/video-candidates/{candidate['id']}",
+                    headers={"Authorization": f"Bearer {token}"}, json={"action": "approve"},
+                )
+
+
 async def _poll_until(token: str, task_id: str, target_status: str, max_seconds: int = 120) -> dict:
     for _ in range(max_seconds // 3):
         task = await _get_task(token, task_id)
@@ -83,7 +122,7 @@ async def test_full_promo_flow():
 
     # Initial state
     task = await _get_task(token, tid)
-    assert task["status"] == "pending"
+    assert task["status"] in ("pending", "scripting")
 
     # Resume and wait for script review
     await _resume(token, tid)
@@ -95,9 +134,13 @@ async def test_full_promo_flow():
     task = await _poll_until(token, tid, "image_review", max_seconds=300)
     assert task["status"] == "image_review", f"Expected image_review, got {task['status']}"
 
-    # Approve images and wait for done (video gen takes ~2min with polling)
+    # Approve images, clips, then the final composition.
     await _approve_all_images(token, tid)
-    task = await _poll_until(token, tid, "done", max_seconds=300)
+    task = await _poll_until(token, tid, "video_review", max_seconds=300)
+    await _approve_current_video_candidates(token, tid, "clip")
+    task = await _poll_until(token, tid, "composition_review", max_seconds=300)
+    await _approve_current_video_candidates(token, tid, "composition")
+    task = await _poll_until(token, tid, "done", max_seconds=60)
     assert task["status"] == "done", f"Expected done, got {task['status']}"
 
 
@@ -123,7 +166,11 @@ async def test_retry_from_failed_preserves_progress():
     # (We can't easily trigger a real failure, but we check the retry logic)
     # Approve images and verify flow completes
     await _approve_all_images(token, tid)
-    task = await _poll_until(token, tid, "done", max_seconds=300)
+    await _poll_until(token, tid, "video_review", max_seconds=300)
+    await _approve_current_video_candidates(token, tid, "clip")
+    await _poll_until(token, tid, "composition_review", max_seconds=300)
+    await _approve_current_video_candidates(token, tid, "composition")
+    task = await _poll_until(token, tid, "done", max_seconds=60)
 
     # Now retry — should skip straight to done since everything is approved
     # (resume on done task returns 400)

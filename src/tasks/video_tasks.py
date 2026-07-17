@@ -109,7 +109,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "image_count": task.image_count,
                 "viral_url": "",
                 "script_content": "", "edited_script_content": "", "image_prompts": [],
-                "voiceover_text": "", "generated_images": [], "video_clips": [],
+                "voiceover_text": "", "generated_images": [], "video_clips": [], "video_clips_reused": False,
                 "tts_audio_url": "", "tts_words": [], "lipsync_video_url": "",
                 "character_image_url": "", "viral_analysis": {},
                 "hyperframes_html": "", "final_video_path": "",
@@ -354,7 +354,7 @@ async def _async_run(task_id: str, celery_task_id: str):
 
                 # Video and final composition are explicit review boundaries.
                 # Their persisted candidates let a later resume reuse approved inputs.
-                if node_name in ("generate_video_clips", "composite_video", "composite"):
+                if (node_name == "generate_video_clips" and not node_output.get("video_clips_reused")) or node_name in ("composite_video", "composite"):
                     reset_execution_reporter(reporter_token)
                     reporter_token = None
                     return
@@ -487,7 +487,7 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 await db.commit()
 
         elif node_name == "generate_video_clips":
-            if output.get("video_clips"):
+            if output.get("video_clips") and not output.get("video_clips_reused"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                 media = MediaService(db, create_rustfs_storage(settings))
                 asset_ids = []

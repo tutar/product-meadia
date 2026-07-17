@@ -50,6 +50,19 @@ async def ensure_schema() -> None:
             "ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS "
             "result_video_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
         ))
+        # Existing development databases predate the explicit video and final
+        # composition review boundaries.  Replace the old status check so a
+        # worker can persist those review states instead of failing after video
+        # generation has already completed.
+        await connection.execute(text(
+            "ALTER TABLE video_tasks DROP CONSTRAINT IF EXISTS video_tasks_status_check"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE video_tasks ADD CONSTRAINT video_tasks_status_check "
+            "CHECK (status IN ('pending', 'scripting', 'script_review', 'imaging', "
+            "'image_review', 'character_review', 'video_gen', 'video_review', "
+            "'compositing', 'composition_review', 'done', 'failed'))"
+        ))
         await connection.execute(text(
             "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS "
             "asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"

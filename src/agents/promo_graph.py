@@ -77,7 +77,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
 
     async def generate_video_clips(state: VideoAgentState) -> dict:
         if state.get("video_clips"):
-            return {"video_clips": state["video_clips"]}
+            return {"video_clips": state["video_clips"], "video_clips_reused": True}
         approved_urls = [img["image_url"] for img in state.get("generated_images", []) if img.get("status") == "approved"]
         clips = []
         for url in approved_urls:
@@ -86,7 +86,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                 image_urls=[url],
             )
             clips.append(clip_url)
-        return {"video_clips": clips}
+        return {"video_clips": clips, "video_clips_reused": False}
 
     async def generate_voiceover(state: VideoAgentState) -> dict:
         if state.get("tts_audio_url") and state.get("tts_words"):

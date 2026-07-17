@@ -104,7 +104,8 @@ CREATE TABLE video_tasks (
     type VARCHAR(20) NOT NULL CHECK (type IN ('promo', 'viral', 'personify')),
     status VARCHAR(30) NOT NULL DEFAULT 'pending' CHECK (status IN (
         'pending', 'scripting', 'script_review', 'imaging', 'image_review',
-        'character_review', 'video_gen', 'compositing', 'done', 'failed'
+        'character_review', 'video_gen', 'video_review', 'compositing',
+        'composition_review', 'done', 'failed'
     )),
     current_step TEXT,
     image_count INTEGER NOT NULL DEFAULT 4,

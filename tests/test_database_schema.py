@@ -34,3 +34,5 @@ async def test_ensure_schema_adds_legacy_product_columns(monkeypatch):
     assert any("ADD COLUMN IF NOT EXISTS main_image_source VARCHAR(20)" in statement for statement in statements)
     assert any("ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS user_id UUID" in statement for statement in statements)
     assert any("ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS product_snapshot JSONB" in statement for statement in statements)
+    assert any("ALTER TABLE video_tasks DROP CONSTRAINT IF EXISTS video_tasks_status_check" in statement for statement in statements)
+    assert any("video_review" in statement and "composition_review" in statement for statement in statements)

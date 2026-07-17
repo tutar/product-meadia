@@ -27,6 +27,7 @@ class VideoAgentState(TypedDict):
 
     generated_images: list[dict]
     video_clips: list[str]
+    video_clips_reused: bool
 
     tts_audio_url: str
     tts_words: list[dict]
