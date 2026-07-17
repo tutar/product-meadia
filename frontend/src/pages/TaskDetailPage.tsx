@@ -31,6 +31,30 @@ const FINAL_STATES = ["done", "failed"];
 const STEPS_DISPLAY = ["pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 const SCRIPT_AVAILABLE_STATES = ["script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 
+const STAGE_FOR_STEP: Record<string, string> = {
+  analyze_source: "analysis", generate_script: "scripting", generate_rewritten_script: "scripting",
+  generate_character: "character", generate_images: "imaging", generate_video_clips: "video_gen",
+  generate_clips_and_voiceover: "video_gen", generate_voiceover: "video_gen",
+  generate_tts_and_lipsync: "video_gen", composite_video: "compositing", composite: "compositing",
+};
+
+type LogEntry = { attempt?: number; stage?: string; step: string; status: string; summary?: string; time?: string; started_at?: string; finished_at?: string; duration_ms?: number };
+
+function executionAttempts(log: LogEntry[]) {
+  const attempts = new Map<number, Map<string, LogEntry[]>>();
+  for (const entry of log) {
+    const attempt = entry.attempt || 1;
+    const stage = entry.stage || STAGE_FOR_STEP[entry.step] || "other";
+    if (!attempts.has(attempt)) attempts.set(attempt, new Map());
+    const stages = attempts.get(attempt)!;
+    if (!stages.has(stage)) stages.set(stage, []);
+    stages.get(stage)!.push(entry);
+  }
+  return [...attempts.entries()].sort(([a], [b]) => a - b).map(([attempt, stages]) => ({
+    attempt, stages: [...stages.entries()].map(([stage, entries]) => ({ stage, entries })),
+  }));
+}
+
 function stepIndex(status: string) { return Math.max(0, STEPS_DISPLAY.indexOf(status)); }
 
 export default function TaskDetailPage() {
@@ -45,6 +69,7 @@ export default function TaskDetailPage() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const actionRef = useRef(new Set<string>());
   const [busyActions, setBusyActions] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
     actionRef.current.add(key); setBusyActions([...actionRef.current]);
@@ -115,7 +140,8 @@ export default function TaskDetailPage() {
 
   if (!task) return <div className="empty-state"><p>{t("task.loading")}</p></div>;
 
-  const log = Array.isArray(task.progress_log) ? task.progress_log : [];
+  const log: LogEntry[] = Array.isArray(task.progress_log) ? task.progress_log : [];
+  const attempts = executionAttempts(log);
   const effectiveStep = task.status === "failed" && task.current_step
     ? task.current_step
     : task.status;
@@ -126,9 +152,12 @@ export default function TaskDetailPage() {
   const titleKey = task.type === "promo" ? "task.promoTitle" : task.type === "viral" ? "task.viralTitle" : "task.personifyTitle";
   const nodeLabel = (step: string) => t(`execution.steps.${step}`, step.replace(/_/g, " "));
   const entrySummary = (entry: any) => {
+    if (entry.summary) return String(entry.summary);
     const params = entry.params || {};
-    return String(t(`execution.summaries.${entry.step}`, entry.summary, params));
+    return String(t(`execution.summaries.${entry.step}`, "", params));
   };
+  const isOpenByDefault = (entries: LogEntry[]) => entries.some(entry => entry.status === "running" || entry.status === "error" || entry.status === "waiting");
+  const toggle = (key: string, fallback: boolean) => setExpanded(current => ({ ...current, [key]: !(current[key] ?? fallback) }));
 
   return (
     <div>
@@ -180,35 +209,38 @@ export default function TaskDetailPage() {
 
       {/* Progress log */}
       {log.length > 0 && (
-        <details className="card mb-6" style={{ borderColor: "var(--border)" }}>
-          <summary style={{ cursor: "pointer", fontWeight: 600, fontSize: "0.9rem", padding: 4 }}>
-            {t("execution.title")} ({log.length} {t("execution.stepsCount")})
-          </summary>
-          <div style={{ marginTop: 16 }}>
-            {log.map((entry: any, i: number) => (
-              <div key={i} style={{
-                display: "flex", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--border)",
-                fontSize: "0.82rem", alignItems: "flex-start"
-              }}>
-                <span style={{
-                  color: entry.status === "error" ? "var(--danger)" : "var(--success)",
-                  fontWeight: 600, minWidth: 48
-                }}>
-                  {entry.status === "error" ? t("execution.fail") : t("execution.ok")}
-                </span>
-                <div>
-                  <div style={{ color: "var(--text)", fontWeight: 500 }}>{nodeLabel(entry.step)}</div>
-                  <div style={{ color: entry.status === "error" ? "var(--danger)" : "var(--text-secondary)" }}>
-                    {entrySummary(entry)}
-                  </div>
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: 2 }}>
-                    {new Date(entry.time).toLocaleTimeString()}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
+        <section className="card mb-6" aria-label={t("execution.title")} style={{ borderColor: "var(--border)" }}>
+          <h2 style={{ fontWeight: 600, fontSize: "0.9rem", padding: 4 }}>{t("execution.title")}</h2>
+          {attempts.map(({ attempt, stages }) => {
+            const attemptKey = `attempt:${attempt}`;
+            const attemptDefault = attempt === attempts.at(-1)?.attempt;
+            const attemptOpen = expanded[attemptKey] ?? attemptDefault;
+            return <div key={attemptKey} style={{ marginTop: 10 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => toggle(attemptKey, attemptDefault)} aria-expanded={attemptOpen}>
+                {attemptOpen ? "▾" : "▸"} {t("execution.attempt", { number: attempt })}
+              </button>
+              {attemptOpen && stages.map(({ stage, entries }) => {
+                const stageKey = `${attemptKey}:${stage}`;
+                const stageDefault = isOpenByDefault(entries) || attempt === attempts.at(-1)?.attempt;
+                const stageOpen = expanded[stageKey] ?? stageDefault;
+                return <div key={stageKey} style={{ margin: "8px 0 0 14px", borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => toggle(stageKey, stageDefault)} aria-expanded={stageOpen}>
+                    {stageOpen ? "▾" : "▸"} {t(`execution.stages.${stage}`, stage.replace(/_/g, " "))}
+                  </button>
+                  {stageOpen && entries.map((entry, i) => <div key={`${entry.step}:${i}`} style={{ display: "flex", gap: 12, padding: "8px 0", fontSize: "0.82rem" }}>
+                    <span style={{ color: entry.status === "error" ? "var(--danger)" : entry.status === "running" || entry.status === "waiting" ? "var(--warning)" : "var(--success)", fontWeight: 600, minWidth: 58 }}>
+                      {entry.status === "error" ? t("execution.fail") : entry.status === "running" ? t("execution.running") : entry.status === "waiting" ? t("execution.waiting") : t("execution.ok")}
+                    </span>
+                    <div><div style={{ fontWeight: 500 }}>{nodeLabel(entry.step)}</div>
+                      {entry.summary && <div style={{ color: entry.status === "error" ? "var(--danger)" : "var(--text-secondary)" }}>{entrySummary(entry)}</div>}
+                      <div style={{ color: "var(--text-muted)", fontSize: "0.75rem", marginTop: 2 }}>{entry.duration_ms != null ? t("execution.duration", { seconds: (entry.duration_ms / 1000).toFixed(1) }) : entry.started_at || entry.time ? new Date(entry.started_at || entry.time!).toLocaleTimeString() : ""}</div>
+                    </div>
+                  </div>)}
+                </div>;
+              })}
+            </div>;
+          })}
+        </section>
       )}
 
       {task.error_message && (
