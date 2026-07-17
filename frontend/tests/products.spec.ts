@@ -10,6 +10,23 @@ test("product management route and dynamic form", async ({ page }) => {
   await expect(page.getByLabel(/category|品类/i)).toBeVisible();
 });
 
+test("product filters keep the search field editable", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", r => r.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/products**", r => r.fulfill({ json: { items: [], total: 0, page: 1, page_size: 20 } }));
+  await page.route("**/api/v1/categories", r => r.fulfill({ json: [{ id: "c1", name: "Home fragrance" }] }));
+  await page.goto("/products");
+
+  const search = page.getByLabel(/search|搜索/i);
+  const category = page.getByLabel(/category|品类/i);
+  await search.fill("candle");
+
+  await expect(search).toHaveValue("candle");
+  await expect(search).toBeVisible();
+  await expect(category).toBeVisible();
+  expect((await search.boundingBox())!.width).toBeGreaterThan((await category.boundingBox())!.width);
+});
+
 test("editing a product with a main image displays the existing image", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
   await page.route("**/api/v1/auth/me", r => r.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
