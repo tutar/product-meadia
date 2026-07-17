@@ -1,9 +1,12 @@
 from io import BytesIO
+import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from src.media.rustfs import RustFSObjectStorage
+from src.config import Settings
+from src.media.rustfs import RustFSObjectStorage, create_rustfs_storage
 from src.media.storage import ObjectNotFound, StorageError
 
 
@@ -54,3 +57,27 @@ async def test_rustfs_adapter_maps_missing_and_storage_failures():
     client.put_object.side_effect = RuntimeError("offline")
     with pytest.raises(StorageError):
         await storage.upload("media", "file", b"x", "text/plain")
+
+
+@pytest.mark.asyncio
+async def test_rustfs_adapter_creates_missing_bucket_then_retries():
+    client = MagicMock()
+    missing = MissingObject()
+    missing.response = {"Error": {"Code": "NoSuchBucket"}}
+    client.put_object.side_effect = [missing, None]
+    storage = RustFSObjectStorage(client)
+
+    await storage.upload("media", "users/u/image.png", b"stored", "image/png")
+
+    client.create_bucket.assert_called_once_with(Bucket="media")
+    assert client.put_object.call_count == 2
+
+
+def test_rustfs_storage_forces_sigv4_presigned_urls(monkeypatch):
+    boto3 = SimpleNamespace(client=MagicMock(return_value=MagicMock()))
+    monkeypatch.setitem(sys.modules, "boto3", boto3)
+
+    create_rustfs_storage(Settings())
+
+    config = boto3.client.call_args.kwargs["config"]
+    assert config.signature_version == "s3v4"

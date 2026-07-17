@@ -2,6 +2,7 @@ import asyncio
 import datetime as _dt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import NullPool
 from src.config import settings
 from src.media.rustfs import create_rustfs_storage
 from src.services.media_service import MediaService
@@ -15,7 +16,10 @@ from src.ws.progress import progress_manager
 from src.agents.checkpoint import get_checkpointer
 from src.tasks.execution import ARTIFACT_STATE_KEYS, NodeExecutionError, stage_for_node
 
-engine = create_async_engine(settings.database_url)
+# Celery invokes each task through asyncio.run(), creating a new event loop.
+# Asyncpg connections cannot move between those loops, so this worker must not
+# retain pooled connections across task invocations.
+engine = create_async_engine(settings.database_url, poolclass=NullPool)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -180,6 +184,8 @@ async def _async_run(task_id: str, celery_task_id: str):
             elif task.status == "pending":
                 task.status = "scripting"
 
+            task.error_message = None
+            task.current_step = None
             task.celery_task_id = celery_task_id
             await db.commit()
 

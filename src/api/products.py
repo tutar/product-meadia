@@ -11,6 +11,7 @@ from src.services.product_validation import normalize_attributes,AttributeValida
 from src.services.main_image_candidates import create_candidate,consume_candidate
 from src.api.media import get_media_service
 from src.services.media_service import MediaService
+from src.media.storage import StorageError
 from src.tasks.video_tasks import _fetch_provider_media
 router=APIRouter(prefix='/products',tags=['products'])
 
@@ -26,9 +27,14 @@ async def prepare(db,user,body):
 async def generate(body:ProductDraft,db=Depends(get_async_session),user=Depends(get_current_user)):
  await prepare(db,user,body)
  media=get_media_service(db)
- c=await create_candidate(db,user.id,body,media,_fetch_provider_media)
- await db.commit()
- return {'candidate_id':c.id,'preview_url':await media.access_url(c.asset_id,user.id),'expires_at':c.expires_at}
+ try:
+  c=await create_candidate(db,user.id,body,media,_fetch_provider_media)
+  await db.commit()
+  preview_url=await media.access_url(c.asset_id,user.id)
+ except StorageError as exc:
+  await db.rollback()
+  raise HTTPException(503,'Media storage is unavailable') from exc
+ return {'candidate_id':c.id,'preview_url':preview_url,'expires_at':c.expires_at}
 
 @router.post('/main-image/upload',status_code=201)
 async def upload_main_image(file:UploadFile=File(...),db=Depends(get_async_session),user=Depends(get_current_user),media:MediaService=Depends(get_media_service)):

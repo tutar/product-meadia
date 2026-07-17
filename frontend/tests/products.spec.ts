@@ -5,7 +5,24 @@ test("product management route and dynamic form", async ({ page }) => {
   await page.route("**/api/v1/products", r => r.fulfill({ json: { items: [], total: 0, page: 1, page_size: 20 } }));
   await page.route("**/api/v1/categories", r => r.fulfill({ json: [] }));
   await page.goto("/products");
-  await expect(page.getByRole("heading", { name: /products|商品/i })).toBeVisible();
-  await page.getByRole("link", { name: /new product|新建商品/i }).click();
+  await expect(page.locator("h1")).toHaveText(/products|商品/i);
+  await page.locator('a[href="/products/new"]').first().click();
   await expect(page.getByLabel(/category|品类/i)).toBeVisible();
+});
+
+test("editing a product with a main image displays the existing image", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", r => r.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/categories", r => r.fulfill({ json: [] }));
+  await page.route("**/api/v1/products/p1", r => r.fulfill({ json: {
+    id: "p1", category_id: "c1", name: "Studio Headphones", description: null,
+    selling_points: [], scenarios: [], attributes: {}, main_image_asset_id: "asset-1",
+    main_image_source: "asset", category_template_version: 1,
+  } }));
+  await page.route("**/api/v1/media/asset-1/access", r => r.fulfill({ json: { asset_id: "asset-1", url: "https://example.test/existing.png" } }));
+  await page.route("https://example.test/existing.png", r => r.fulfill({ contentType: "image/png", body: "" }));
+
+  await page.goto("/products/p1/edit");
+
+  await expect(page.getByRole("img", { name: /existing main image|当前主图/i })).toBeVisible();
 });

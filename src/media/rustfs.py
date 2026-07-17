@@ -21,6 +21,10 @@ def _is_not_found(exc: Exception) -> bool:
     return _error_code(exc) in {"404", "NoSuchKey", "NotFound"}
 
 
+def _is_missing_bucket(exc: Exception) -> bool:
+    return _error_code(exc) in {"404", "NoSuchBucket", "NoSuchBucketException"}
+
+
 class RustFSObjectStorage:
     """ObjectStorage adapter for RustFS' S3-compatible API."""
 
@@ -35,12 +39,25 @@ class RustFSObjectStorage:
         content_type: str,
     ) -> None:
         try:
-            self._client.put_object(
-                Bucket=bucket,
-                Key=object_key,
-                Body=data,
-                ContentType=content_type,
-            )
+            try:
+                self._client.put_object(
+                    Bucket=bucket,
+                    Key=object_key,
+                    Body=data,
+                    ContentType=content_type,
+                )
+            except Exception as exc:
+                # Development RustFS instances commonly start without the
+                # application bucket. Make the first write idempotent.
+                if not _is_missing_bucket(exc):
+                    raise
+                self._client.create_bucket(Bucket=bucket)
+                self._client.put_object(
+                    Bucket=bucket,
+                    Key=object_key,
+                    Body=data,
+                    ContentType=content_type,
+                )
         except Exception as exc:
             raise StorageError(f"failed to upload {bucket}/{object_key}") from exc
 
@@ -99,6 +116,7 @@ class RustFSObjectStorage:
 def create_rustfs_storage(settings: Settings) -> RustFSObjectStorage:
     try:
         import boto3
+        from botocore.config import Config
     except ImportError as exc:
         raise RuntimeError("boto3 is required to connect to RustFS") from exc
 
@@ -108,5 +126,6 @@ def create_rustfs_storage(settings: Settings) -> RustFSObjectStorage:
         aws_access_key_id=settings.rustfs_access_key,
         aws_secret_access_key=settings.rustfs_secret_key,
         region_name=settings.rustfs_region,
+        config=Config(signature_version="s3v4"),
     )
     return RustFSObjectStorage(client)

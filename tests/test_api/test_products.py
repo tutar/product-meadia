@@ -119,3 +119,22 @@ async def test_prepare_template_conflict_returns_409(monkeypatch):
     user=SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'get_owned_category',AsyncMock(return_value=SimpleNamespace(template_version=2,attributes=[])))
     with pytest.raises(HTTPException) as exc: await products_api.prepare(_db(),user,ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup'))
     assert exc.value.status_code==409 and exc.value.detail['current_version']==2
+
+
+@pytest.mark.asyncio
+async def test_generate_maps_media_storage_failure_to_503(monkeypatch):
+    from src.media.storage import StorageError
+
+    db = _db()
+    db.rollback = AsyncMock()
+    user = SimpleNamespace(id=uuid4())
+    body = ProductCreate(category_id=uuid4(), category_template_version=1, name='Cup')
+    monkeypatch.setattr(products_api, 'prepare', AsyncMock(return_value={}))
+    monkeypatch.setattr(products_api, 'get_media_service', Mock(return_value=object()))
+    monkeypatch.setattr(products_api, 'create_candidate', AsyncMock(side_effect=StorageError('offline')))
+
+    with pytest.raises(HTTPException) as exc:
+        await products_api.generate(body, db, user)
+
+    assert exc.value.status_code == 503
+    db.rollback.assert_awaited_once()
