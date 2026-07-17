@@ -105,6 +105,36 @@ async def test_script_review_feedback_is_passed_to_the_next_generation():
 
 
 @pytest.mark.asyncio
+async def test_reused_script_does_not_report_a_new_script_generation():
+    from src.tasks.execution import reset_execution_reporter, set_execution_reporter
+
+    graph = build_promo_graph()
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "script_content": "existing", "edited_script_content": "", "image_prompts": ["prompt"], "voiceover_text": "existing",
+        "generated_images": [], "video_clips": [], "tts_audio_url": "", "tts_words": [],
+        "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
+        "hyperframes_html": "", "final_video_path": "", "review_approved": False,
+        "script_approved": False, "images_approved": False, "character_approved": False,
+        "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
+    }
+    started = []
+
+    async def report(node_name):
+        started.append(node_name)
+
+    token = set_execution_reporter(report)
+    try:
+        async for _ in graph.astream(state, {"configurable": {"thread_id": "reused-script"}}):
+            pass
+    finally:
+        reset_execution_reporter(token)
+
+    assert "generate_script" not in started
+
+
+@pytest.mark.asyncio
 async def test_reused_video_clips_are_marked_so_the_worker_can_continue_after_review():
     graph = build_promo_graph(interrupt_before=[])
     state = {

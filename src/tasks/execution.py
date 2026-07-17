@@ -87,12 +87,13 @@ class NodeExecutionError(RuntimeError):
 def tracked_node(
     node_name: str,
     node: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]],
+    should_report: Callable[[dict[str, Any]], bool] | None = None,
 ):
     @wraps(node)
     async def wrapped(state):
         try:
             reporter = _execution_reporter.get()
-            if reporter:
+            if reporter and (should_report is None or should_report(state)):
                 await reporter(node_name)
             return await node(state)
         except NodeExecutionError:

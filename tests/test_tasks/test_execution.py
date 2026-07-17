@@ -39,6 +39,27 @@ async def test_tracked_node_reports_when_a_substep_starts():
     assert started == ["generate_script"]
 
 
+@pytest.mark.asyncio
+async def test_tracked_node_does_not_report_a_skipped_substep():
+    started = []
+
+    async def report(node_name):
+        started.append(node_name)
+
+    token = set_execution_reporter(report)
+    try:
+        wrapped = tracked_node(
+            "generate_script",
+            lambda _state: _result({}),
+            should_report=lambda state: not state["already_generated"],
+        )
+        assert await wrapped({"already_generated": True}) == {}
+    finally:
+        reset_execution_reporter(token)
+
+    assert started == []
+
+
 async def _result(value):
     return value
 

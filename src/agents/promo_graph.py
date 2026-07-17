@@ -182,7 +182,14 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         path = await render_hyperframes(html)
         return {"hyperframes_html": html, "final_video_path": path}
 
-    graph.add_node("generate_script", tracked_node("generate_script", generate_script))
+    graph.add_node(
+        "generate_script",
+        tracked_node(
+            "generate_script",
+            generate_script,
+            should_report=lambda state: not (state.get("script_content") and state.get("image_prompts")),
+        ),
+    )
     graph.add_node("wait_script_review", wait_script_review)
     graph.add_node("generate_images", tracked_node("generate_images", generate_images))
     graph.add_node("wait_image_review", wait_image_review)
