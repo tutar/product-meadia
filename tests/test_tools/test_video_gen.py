@@ -65,6 +65,39 @@ async def test_generate_video_single_image():
 
 
 @pytest.mark.asyncio
+async def test_generate_video_embeds_private_rustfs_image():
+    mock_create = MagicMock()
+    mock_create.raise_for_status = MagicMock()
+    mock_create.json.return_value = {"id": "vid_private", "status": "queued"}
+
+    mock_image = MagicMock()
+    mock_image.raise_for_status = MagicMock()
+    mock_image.headers = {"content-type": "image/png"}
+    mock_image.content = b"private-png"
+
+    post_mock = AsyncMock(return_value=mock_create)
+    poll_mock = AsyncMock(side_effect=_get_side_effect())
+
+    async def get_mock(url, **kwargs):
+        if url.startswith("http://rustfs:8001/"):
+            return mock_image
+        return await poll_mock(url, **kwargs)
+
+    with patch("src.tools.video_gen.httpx.AsyncClient") as mock_client:
+        mock_client.return_value.__aenter__.return_value.post = post_mock
+        mock_client.return_value.__aenter__.return_value.get = get_mock
+        with patch("src.tools.video_gen.asyncio.sleep", new_callable=AsyncMock):
+            with patch("tempfile.NamedTemporaryFile", MagicMock()):
+                with patch("builtins.open", MagicMock()):
+                    await generate_video(
+                        "Private image",
+                        image_urls=["http://rustfs:8001/product-media/image.png?signature=secret"],
+                    )
+
+    assert post_mock.call_args.kwargs["json"]["image"] == "data:image/png;base64,cHJpdmF0ZS1wbmc="
+
+
+@pytest.mark.asyncio
 async def test_generate_video_keyframe_mode():
     """2+ images: keyframes mode with image list."""
     mock_resp1 = MagicMock()

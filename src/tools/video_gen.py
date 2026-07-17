@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import tempfile
+from urllib.parse import urlparse
 import httpx
 from src.config import settings
 from langfuse import observe
@@ -8,6 +10,26 @@ HEADERS = {
     "Authorization": f"Bearer {settings.litellm_api_key}",
     "Content-Type": "application/json",
 }
+
+
+def _is_private_image_url(url: str) -> bool:
+    return urlparse(url).hostname in {"rustfs", "localhost", "127.0.0.1"}
+
+
+async def _provider_image_urls(client: httpx.AsyncClient, image_urls: list[str]) -> list[str]:
+    provider_urls = []
+    for image_url in image_urls:
+        if not _is_private_image_url(image_url):
+            provider_urls.append(image_url)
+            continue
+        response = await client.get(image_url)
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "image/png").split(";", 1)[0]
+        if not content_type.startswith("image/"):
+            raise ValueError(f"Private media URL did not return an image: {image_url}")
+        encoded = base64.b64encode(response.content).decode("ascii")
+        provider_urls.append(f"data:{content_type};base64,{encoded}")
+    return provider_urls
 
 
 @observe(name="generate_video")
@@ -24,15 +46,15 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
         "num_frames": 121,
         "frame_rate": 24,
     }
-    if image_urls:
-        if len(image_urls) >= 2:
-            payload["image"] = image_urls
-            payload["mode"] = "keyframes"
-        else:
-            payload["image"] = image_urls[0]
-
     async with httpx.AsyncClient(timeout=httpx.Timeout(360, connect=10)) as client:
         base = settings.litellm_base_url
+        if image_urls:
+            provider_urls = await _provider_image_urls(client, image_urls)
+            if len(provider_urls) >= 2:
+                payload["image"] = provider_urls
+                payload["mode"] = "keyframes"
+            else:
+                payload["image"] = provider_urls[0]
 
         # Create video task
         # Create with rate limit handling (1 req/min)
