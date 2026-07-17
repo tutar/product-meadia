@@ -57,9 +57,15 @@ function executionAttempts(log: LogEntry[]) {
 
 function stepIndex(status: string) { return Math.max(0, STEPS_DISPLAY.indexOf(status)); }
 
-export default function TaskDetailPage() {
+type TaskDetailPageProps = {
+  taskId?: string;
+  onTaskLoaded?: (task: any) => void;
+};
+
+export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageProps) {
   const { t } = useTranslation();
-  const { id } = useParams<{ id: string }>();
+  const { id: routeTaskId } = useParams<{ id: string }>();
+  const id = taskId ?? routeTaskId;
   const [task, setTask] = useState<any>(null);
   const [script, setScript] = useState<any>(null);
   const [images, setImages] = useState<any[]>([]);
@@ -88,11 +94,11 @@ export default function TaskDetailPage() {
       api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
       api.get(`/tasks/${id}/video-candidates`).then(r => r.data).catch(() => []),
     ]);
-    if (tdata) setTask(tdata);
+    if (tdata) { setTask(tdata); onTaskLoaded?.(tdata); }
     if (sdata) { setScript(sdata); setEditedContent(sdata.edited_content || sdata.content); }
     if (idata.length > 0) setImages(idata);
     setVideoCandidates(vdata);
-  }, [id]);
+  }, [id, onTaskLoaded]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -171,7 +177,7 @@ export default function TaskDetailPage() {
   const toggle = (key: string, fallback: boolean) => setExpanded(current => ({ ...current, [key]: !(current[key] ?? fallback) }));
 
   return (
-    <div>
+    <div className="task-detail">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1>{t(titleKey)}</h1>

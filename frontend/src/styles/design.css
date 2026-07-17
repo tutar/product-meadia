@@ -163,7 +163,7 @@ a:hover { text-decoration: underline; }
 
 .app-main {
   flex: 1;
-  max-width: 880px;
+  max-width: 1440px;
   width: 100%;
   margin: 0 auto;
   padding: 40px 32px;
@@ -352,6 +352,41 @@ a:hover { text-decoration: underline; }
   color: var(--success);
   border-color: var(--success);
 }
+
+/* === Task Workspace === */
+.task-workspace { display: grid; grid-template-columns: minmax(252px, 300px) minmax(0, 1fr); min-height: calc(100vh - 136px); border: 1px solid var(--border); background: var(--surface); }
+.task-queue { min-width: 0; border-right: 1px solid var(--border); background: var(--surface-raised); }
+.task-queue-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 16px 14px; border-bottom: 1px solid var(--border); }
+.task-queue-heading h1 { margin-top: 2px; font-size: 1.05rem; }
+.task-queue-filters { display: grid; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.task-queue-filters select { width: 100%; min-height: 36px; padding: 0 28px 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-secondary); font: inherit; font-size: .78rem; }
+.task-queue-list { padding: 10px 8px 18px; }
+.task-queue-group + .task-queue-group { margin-top: 18px; }
+.task-queue-group h2 { margin: 0 8px 6px; color: var(--text-muted); font-size: .67rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.task-queue-item { position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); width: 100%; gap: 10px; padding: 10px 8px 10px 12px; border: 0; border-left: 2px solid var(--border); background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.task-queue-item:hover { background: var(--accent-soft); }
+.task-queue-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.task-queue-item.is-selected { border-left-color: var(--accent); background: var(--accent-soft); }
+.task-queue-item.is-done { border-left-color: var(--success); }
+.task-queue-item.is-failed { border-left-color: var(--danger); }
+.task-queue-item.is-review { border-left-color: var(--warning); }
+.task-queue-image, .task-queue-placeholder { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; background: var(--inset-bg); }
+.task-queue-placeholder { display: grid; place-items: center; color: var(--text-muted); font-family: var(--font-display); font-size: .78rem; text-transform: uppercase; }
+.task-queue-copy { display: grid; min-width: 0; line-height: 1.35; }
+.task-queue-copy strong { overflow: hidden; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.task-queue-copy small, .task-queue-copy time { color: var(--text-secondary); font-size: .7rem; }
+.task-queue-copy time { color: var(--text-muted); margin-top: 2px; }
+.task-queue-empty { padding: 28px 12px; color: var(--text-secondary); font-size: .84rem; text-align: center; }
+.task-queue-empty p { margin-bottom: 8px; }
+.task-workspace-main { min-width: 0; padding: 28px 32px 44px; background: var(--bg); }
+.workspace-main-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding-bottom: 20px; margin-bottom: 22px; border-bottom: 1px solid var(--border); }
+.workspace-main-header h2 { margin-top: 4px; font-size: 1.5rem; }
+.task-workspace-empty { display: grid; min-height: 360px; place-items: center; color: var(--text-secondary); }
+.task-create-form { max-width: 760px; }
+.task-create-form > .card { padding: 0 0 24px; margin-bottom: 24px; border: 0; border-radius: 0; border-bottom: 1px solid var(--border); background: transparent; }
+.task-create-form > .card > .card { padding: 12px; border-color: var(--border); background: var(--surface-raised); }
+.task-create-form .card.mt-4 { margin-top: 14px; }
+.task-create-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
 /* === Status Badge === */
 .badge {
@@ -553,7 +588,7 @@ tr:hover td { background: var(--table-hover); }
 .check-label { display: flex !important; align-items: center; gap: 6px; white-space: nowrap; }
 .row-actions { display: flex; align-items: center; gap: 2px; }
 .editor-actions { justify-content: flex-end; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
-@media (max-width: 680px) { .workspace-header, .catalog-summary { align-items: stretch; flex-direction: column; } .filter-bar { grid-template-columns: 1fr; } .summary-note { margin-left: 0; } .catalog-summary div:not(.summary-note) { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 10px; } .editor-fields { grid-template-columns: 1fr; } .product-card { flex-direction: column; } .product-visual { flex-basis: auto; width: 100%; } }
+@media (max-width: 680px) { .workspace-header, .catalog-summary { align-items: stretch; flex-direction: column; } .filter-bar { grid-template-columns: 1fr; } .summary-note { margin-left: 0; } .catalog-summary div:not(.summary-note) { border-right: 0; border-bottom: 1px solid var(--border); padding: 0 0 10px; } .editor-fields { grid-template-columns: 1fr; } .product-card { flex-direction: column; } .product-visual { flex-basis: auto; width: 100%; } .app-main { padding: 16px; } .task-workspace { display: block; min-height: 0; border: 0; } .task-queue { border: 1px solid var(--border); } .task-queue-filters { grid-template-columns: 1fr 1fr; } .task-queue-list { display: flex; overflow-x: auto; } .task-queue-group { display: contents; } .task-queue-group h2 { display: none; } .task-queue-item { flex: 0 0 210px; } .task-workspace-main { padding: 24px 0; } }
 .product-form-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 18px; align-items: start; }
 .product-form-page .category-editor { display: block; }
 .form-section { padding: 4px 0 24px; margin-bottom: 22px; border-bottom: 1px solid var(--border); }

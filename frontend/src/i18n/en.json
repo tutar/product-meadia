@@ -169,6 +169,7 @@
     "failed": "Failed"
   },
   "initialization": {"pending":"Sample products are being prepared. You can create products now.","failed":"Sample setup failed; manual creation remains available.","unavailable":"Initialization status is temporarily unavailable; manual creation still works.","manual":"Create manually"},
+  "workspace": {"attention":"Needs attention","recent":"Recent","noMatches":"No tasks match these filters."},
   "types": {
     "promo": "Promo",
     "viral": "Viral Remix",

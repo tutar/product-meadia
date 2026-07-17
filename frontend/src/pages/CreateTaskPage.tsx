@@ -6,7 +6,14 @@ import api from "../api/client";
 import { catalogApi, type Product } from "../api/catalog";
 import MediaImage from "../components/MediaImage";
 
-export default function CreateTaskPage() {
+type CreateTaskFormProps = {
+  initialCategoryId?: string;
+  initialProductId?: string;
+  onCreated?: (taskId: string) => void;
+  onCancel?: () => void;
+};
+
+export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", onCreated, onCancel }: CreateTaskFormProps) {
   const { t } = useTranslation();
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState("");
@@ -20,8 +27,12 @@ export default function CreateTaskPage() {
   const selectedProduct = products.find(product => product.id === productId);
 
   useEffect(() => {
-    catalogApi.listProducts().then(r => setProducts(r.items)).catch(() => {});
-  }, []);
+    catalogApi.listProducts({ ...(initialCategoryId ? { category_id: initialCategoryId } : {}), page_size: 100 }).then(r => setProducts(r.items)).catch(() => {});
+  }, [initialCategoryId]);
+
+  useEffect(() => {
+    setProductId(initialProductId);
+  }, [initialProductId, initialCategoryId]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -35,11 +46,12 @@ export default function CreateTaskPage() {
         image_count: imageCount,
         viral_url: type === "viral" ? viralUrl : undefined,
       });
-      navigate(`/tasks/${data.id}`);
+      if (onCreated) onCreated(data.id);
+      else navigate(`/dashboard?task=${data.id}`);
     } catch (cause) {
       if (axios.isAxiosError(cause) && cause.response?.status === 409) {
         const taskId = cause.response.data?.detail?.task_id;
-        if (taskId) { navigate(`/tasks/${taskId}`); return; }
+        if (taskId) { if (onCreated) onCreated(taskId); else navigate(`/dashboard?task=${taskId}`); return; }
       }
       setError(t("task.createError"));
     } finally { submittingRef.current = false; setLoading(false); }
@@ -52,14 +64,12 @@ export default function CreateTaskPage() {
   ];
 
   return (
-    <div>
-      <h1 className="mb-6">{t("task.newVideo")}</h1>
-      <form onSubmit={handleSubmit}>
+      <form className="task-create-form" onSubmit={handleSubmit}>
         <div className="card mb-6">
           <h3 className="mb-6">{t("task.product")}</h3>
           <div className="form-group">
-            <label className="form-label">{t("task.selectProduct")}</label>
-            <select className="select" value={productId} onChange={e => setProductId(e.target.value)} required>
+            <label className="form-label" htmlFor="task-product">{t("task.selectProduct")}</label>
+            <select id="task-product" className="select" value={productId} onChange={e => setProductId(e.target.value)} required>
               <option value="">{t("task.selectProduct")}</option>
               {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.category?.name ? ` · ${p.category.name}` : ""}</option>)}
             </select>
@@ -96,10 +106,17 @@ export default function CreateTaskPage() {
         </div>
 
         {error && <p role="alert" className="notice notice-error mb-4">{error}</p>}
-        <button className="btn btn-primary btn-lg" type="submit" disabled={loading || !productId}>
-          {loading ? t("task.creating") : t("task.generate")}
-        </button>
+        <div className="task-create-actions">
+          {onCancel && <button className="btn btn-ghost" type="button" onClick={onCancel}>{t("products.cancel")}</button>}
+          <button className="btn btn-primary btn-lg" type="submit" disabled={loading || !productId}>
+            {loading ? t("task.creating") : t("task.generate")}
+          </button>
+        </div>
       </form>
-    </div>
   );
+}
+
+export default function CreateTaskPage() {
+  const { t } = useTranslation();
+  return <section className="create-task-page"><h1 className="mb-6">{t("task.newVideo")}</h1><CreateTaskForm /></section>;
 }

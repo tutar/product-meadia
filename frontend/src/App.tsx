@@ -5,8 +5,7 @@ import i18n from "./i18n";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import DashboardPage from "./pages/DashboardPage";
-import CreateTaskPage from "./pages/CreateTaskPage";
+import TaskWorkspacePage from "./pages/TaskWorkspacePage";
 import TaskDetailPage from "./pages/TaskDetailPage";
 import CategoriesPage from "./pages/CategoriesPage";
 import ProductsPage from "./pages/ProductsPage";
@@ -77,7 +76,6 @@ function AppHeader() {
       <Link to="/dashboard" className="logo">Product<span>Media</span></Link>
       <nav>
         <Link to="/dashboard" className={isActive("/dashboard")}>{t("nav.dashboard")}</Link>
-        <Link to="/tasks/new" className={isActive("/tasks/new")}>{t("nav.newVideo")}</Link>
         <Link to="/categories" className={isActive("/categories")}>{t("nav.categories")}</Link>
         <Link to="/products" className={isActive("/products")}>{t("nav.products")}</Link>
         <div className="profile-menu" ref={profileMenuRef}>
@@ -154,8 +152,7 @@ function AppShell() {
       <AppHeader />
       <main className="app-main">
         <Routes>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/tasks/new" element={<CreateTaskPage />} />
+          <Route path="/dashboard" element={<TaskWorkspacePage />} />
           <Route path="/tasks/:id" element={<TaskDetailPage />} />
           <Route path="/categories" element={<CategoriesPage />} />
           <Route path="/products" element={<ProductsPage />} />

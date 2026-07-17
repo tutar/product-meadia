@@ -38,11 +38,11 @@ test('full promo video creation flow', async ({ page }) => {
   const productId = (await prodResp.json()).id;
 
   // 5. Create task
-  await page.goto('/tasks/new');
-  await expect(page.locator('h1')).toContainText('New Video');
+  await page.goto('/dashboard');
+  await page.getByRole('button', { name: 'New Video' }).click();
   await page.locator('select').selectOption(productId);
   await page.locator('button[type="submit"]').click();
-  await page.waitForURL('**/tasks/**');
+  await page.waitForURL(/\/dashboard\?task=/);
 
   // 6. Click Resume
   const resumeBtn = page.locator('button:has-text("Resume")');

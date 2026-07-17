@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, RedirectResponse
-from sqlalchemy import select, func
+from sqlalchemy import case, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid import UUID
@@ -98,6 +98,7 @@ async def create_task(
 @router.get("")
 async def list_tasks(
     product_id: UUID | None = None,
+    category_id: UUID | None = None,
     type: str | None = None,
     status: str | None = None,
     page: int = Query(1, ge=1),
@@ -106,6 +107,8 @@ async def list_tasks(
     user: User = Depends(get_current_user),
 ):
     query = select(VideoTask).where(VideoTask.user_id == user.id).options(selectinload(VideoTask.script), selectinload(VideoTask.images))
+    if category_id:
+        query = query.join(Product, VideoTask.product_id == Product.id).where(Product.category_id == category_id)
     if product_id:
         query = query.where(VideoTask.product_id == product_id)
     if type:
@@ -113,10 +116,15 @@ async def list_tasks(
     if status:
         query = query.where(VideoTask.status == status)
 
+    queue_priority = case(
+        (VideoTask.status.in_(("script_review", "image_review", "character_review", "video_review", "composition_review")), 0),
+        (VideoTask.status.in_(("pending", "scripting", "imaging", "video_gen", "compositing")), 1),
+        else_=2,
+    )
     offset = (page - 1) * page_size
-    result = await db.execute(query.offset(offset).limit(page_size).order_by(VideoTask.created_at.desc()))
+    result = await db.execute(query.order_by(queue_priority, VideoTask.updated_at.desc()).offset(offset).limit(page_size))
     items = result.scalars().all()
-    total_result = await db.execute(select(func.count(VideoTask.id)).where(VideoTask.user_id == user.id))
+    total_result = await db.execute(select(func.count()).select_from(query.order_by(None).subquery()))
     return {"items": items, "total": total_result.scalar()}
 
 

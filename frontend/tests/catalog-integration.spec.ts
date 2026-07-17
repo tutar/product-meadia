@@ -41,7 +41,9 @@ test("task selector previews generic product and creates task", async ({ page })
     return route.fulfill({ json: { items: [], total: 0 } });
   });
   await page.route("**/api/v1/tasks/t1", route => route.fulfill({ json: { id: "t1", status: "pending", type: "promo", image_count: 4, progress_log: [] } }));
-  await page.goto("/tasks/new");
+  await page.route("**/api/v1/categories", route => route.fulfill({ json: [] }));
+  await page.goto("/dashboard");
+  await page.getByRole("button", { name: /new video|新建视频/i }).click();
   await page.getByLabel(/choose a product|选择商品/i).selectOption("p1");
   await expect(page.getByText("Studio Headphones")).toBeVisible();
   await expect(page.getByText("Electronics")).toBeVisible();
