@@ -58,6 +58,10 @@ async def ensure_schema() -> None:
             "ALTER TABLE main_image_candidates ADD COLUMN IF NOT EXISTS "
             "asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
         ))
+        for column in ("auto_approve_script", "auto_approve_images"):
+            await connection.execute(text(
+                f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {column} BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
 
 
 async def get_async_session() -> AsyncSession:

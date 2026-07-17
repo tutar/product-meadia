@@ -13,8 +13,10 @@
     "openMenu": "Open account menu",
     "closeMenu": "Close account menu",
     "appearance": "Appearance",
-    "language": "Language"
+    "language": "Language",
+    "preferences": "Preferences"
   },
+  "preferences": {"title":"Review preferences","description":"These settings apply when future content reaches a review point.","script":"Automatically approve scripts","scriptHelp":"New scripts continue to image generation without waiting.","images":"Automatically approve images","imagesHelp":"New product and character images continue to video generation without waiting.","save":"Save preferences","saving":"Saving..."},
   "nav": {
     "dashboard": "Dashboard",
     "newVideo": "New Video",
@@ -160,7 +162,9 @@
     "image_review": "Review Images",
     "character_review": "Review Character",
     "video_gen": "Generating Video",
+    "video_review": "Review Video Clips",
     "compositing": "Compositing",
+    "composition_review": "Review Final Video",
     "done": "Complete",
     "failed": "Failed"
   },

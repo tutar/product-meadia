@@ -11,6 +11,7 @@ import TaskDetailPage from "./pages/TaskDetailPage";
 import CategoriesPage from "./pages/CategoriesPage";
 import ProductsPage from "./pages/ProductsPage";
 import ProductFormPage from "./pages/ProductFormPage";
+import PreferencesPage from "./pages/PreferencesPage";
 import "./styles/design.css";
 
 type Theme = "studio" | "work";
@@ -109,6 +110,7 @@ function AppHeader() {
                 <span>{t("profile.language")}</span>
                 <span className="profile-menu-value">{i18n.language === "zh" ? "中文" : "English"}</span>
               </button>
+              <Link to="/preferences" className="profile-menu-item" onClick={() => setMenuOpen(false)} role="menuitem">{t("profile.preferences")}</Link>
               <div className="profile-menu-divider" />
               <button type="button" className="profile-menu-item profile-menu-danger" onClick={logout} role="menuitem">
                 {t("nav.logout")}
@@ -159,6 +161,7 @@ function AppShell() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/products/new" element={<ProductFormPage />} />
           <Route path="/products/:id/edit" element={<ProductFormPage />} />
+          <Route path="/preferences" element={<PreferencesPage />} />
           <Route path="*" element={<Navigate to="/dashboard" />} />
         </Routes>
       </main>

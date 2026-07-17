@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 from httpx import AsyncClient
 from src.database import get_async_session
 from src.models.user import User
-from src.schemas.auth import UserCreate, UserResponse, TokenResponse, TokenRequest, RefreshRequest
+from src.schemas.auth import UserCreate, UserResponse, TokenResponse, TokenRequest, RefreshRequest, ReviewPreferences
 from src.auth.jwt import create_access_token, create_refresh_token, decode_token
 from src.auth.deps import get_current_user
 from src.config import settings
@@ -100,4 +100,18 @@ async def refresh(body: RefreshRequest):
 
 @router.get("/me", response_model=UserResponse)
 async def me(user: User = Depends(get_current_user)):
+    return user
+
+
+@router.get("/preferences", response_model=ReviewPreferences)
+async def get_preferences(user: User = Depends(get_current_user)):
+    return user
+
+
+@router.put("/preferences", response_model=ReviewPreferences)
+async def update_preferences(body: ReviewPreferences, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    user.auto_approve_script = body.auto_approve_script
+    user.auto_approve_images = body.auto_approve_images
+    await db.commit()
+    await db.refresh(user)
     return user

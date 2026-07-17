@@ -47,6 +47,24 @@ class ImageReview(BaseModel):
     action: str
 
 
+class CandidateReview(BaseModel):
+    action: str
+
+
+class VideoCandidateResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    asset_id: UUID | None = None
+    access_url: str | None = None
+    kind: str
+    sort_order: int
+    version: int
+    status: str
+    is_current: bool
+
+    model_config = {"from_attributes": True}
+
+
 class ViralAnalysisResponse(BaseModel):
     id: UUID
     task_id: UUID | None

@@ -13,8 +13,10 @@
     "openMenu": "打开账户菜单",
     "closeMenu": "关闭账户菜单",
     "appearance": "主题",
-    "language": "语言"
+    "language": "语言",
+    "preferences": "偏好设置"
   },
+  "preferences": {"title":"审核偏好","description":"设置只在后续内容到达审核点时生效。","script":"自动通过脚本审核","scriptHelp":"新脚本会直接进入图片生成。","images":"自动通过图片审核","imagesHelp":"新商品图和角色图会直接进入视频生成。","save":"保存偏好","saving":"保存中..."},
   "nav": {
     "dashboard": "工作台",
     "newVideo": "新建视频",
@@ -160,7 +162,9 @@
     "image_review": "审核图片",
     "character_review": "审核角色",
     "video_gen": "生成视频",
+    "video_review": "审核视频片段",
     "compositing": "合成中",
+    "composition_review": "审核最终视频",
     "done": "已完成",
     "failed": "失败"
   },

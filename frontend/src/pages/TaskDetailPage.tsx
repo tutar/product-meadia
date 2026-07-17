@@ -26,9 +26,9 @@ function ResumeButton({ taskId, onResumed }: { taskId: string; onResumed: () => 
   );
 }
 
-const REVIEW_STATES = ["script_review", "image_review", "character_review"];
+const REVIEW_STATES = ["script_review", "image_review", "character_review", "video_review", "composition_review"];
 const FINAL_STATES = ["done", "failed"];
-const STEPS_DISPLAY = ["pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
+const STEPS_DISPLAY = ["pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "video_review", "compositing", "composition_review", "done"];
 const SCRIPT_AVAILABLE_STATES = ["script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 
 const STAGE_FOR_STEP: Record<string, string> = {
@@ -63,6 +63,7 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<any>(null);
   const [script, setScript] = useState<any>(null);
   const [images, setImages] = useState<any[]>([]);
+  const [videoCandidates, setVideoCandidates] = useState<any[]>([]);
   const [editedContent, setEditedContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -80,15 +81,17 @@ export default function TaskDetailPage() {
     if (!id) return;
     const tdata = await api.get(`/tasks/${id}`).then(r => r.data).catch(() => null);
     if (!tdata) return;
-    const [sdata, idata] = await Promise.all([
+    const [sdata, idata, vdata] = await Promise.all([
       SCRIPT_AVAILABLE_STATES.includes(tdata.status)
         ? api.get(`/tasks/${id}/script`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
       api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
+      api.get(`/tasks/${id}/video-candidates`).then(r => r.data).catch(() => []),
     ]);
     if (tdata) setTask(tdata);
     if (sdata) { setScript(sdata); setEditedContent(sdata.edited_content || sdata.content); }
     if (idata.length > 0) setImages(idata);
+    setVideoCandidates(vdata);
   }, [id]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -136,6 +139,14 @@ export default function TaskDetailPage() {
 
   const regenerateImage = async (imageId: string) => {
     await runAction(`image:${imageId}`, async () => { await api.post(`/tasks/${id}/images/${imageId}/regenerate`); const { data } = await api.get(`/tasks/${id}/images`); setImages(data); });
+  };
+
+  const reviewVideoCandidate = async (candidateId: string, action: "approve" | "reject") => {
+    await runAction(`video:${candidateId}`, async () => { await api.put(`/tasks/${id}/video-candidates/${candidateId}`, { action }); await fetchData(); });
+  };
+
+  const regenerateVideoCandidate = async (candidateId: string) => {
+    await runAction(`video:${candidateId}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidateId}/regenerate`); await fetchData(); });
   };
 
   if (!task) return <div className="empty-state"><p>{t("task.loading")}</p></div>;
@@ -268,6 +279,23 @@ export default function TaskDetailPage() {
         <div className="card mb-6">
           <h3 className="mb-4">{t("task.yourVideo")}</h3>
           <video src={videoSrc} controls style={{ width: "100%", borderRadius: "var(--radius)" }} />
+        </div>
+      )}
+
+      {videoCandidates.filter(candidate => candidate.is_current).length > 0 && (
+        <div className="card mb-6">
+          <h3 className="mb-4">{task.status === "composition_review" ? "Final composition review" : "Video clip review"}</h3>
+          {videoCandidates.filter(candidate => candidate.is_current).map(candidate => (
+            <div key={candidate.id} className="mb-4">
+              {candidate.access_url && <video src={candidate.access_url} controls style={{ width: "100%", borderRadius: "var(--radius)" }} />}
+              <div className="flex gap-3 mt-3">
+                {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
+                  <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>Approve</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => regenerateVideoCandidate(candidate.id)}>{candidate.kind === "clip" ? "Regenerate clip" : "Recompose"}</button>
+                </>}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

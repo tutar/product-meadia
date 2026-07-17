@@ -56,6 +56,26 @@ _Avoid_: Graph node, pipeline step
 An observable unit of work or human-review wait within an Execution Stage, with a lifecycle, timing, and safe output or error summary.
 _Avoid_: Internal node, log line
 
+**Auto-Approval Preference**:
+A User-owned setting that automatically approves newly completed Script or Image Candidates at their review point. It never advances a candidate that was already waiting for review when the setting changed.
+_Avoid_: Task default, retroactive approval
+
+**Video Clip Candidate**:
+An immutable, task-owned Persistent Media version generated from one approved Image Candidate. Each current candidate is reviewed independently before it may be used in a Final Composition.
+_Avoid_: Generated video, mutable clip
+
+**Final Composition Candidate**:
+An immutable, task-owned Persistent Media version created by combining approved Video Clip Candidates, audio, and captions. Its approval completes a Video Task.
+_Avoid_: Final video, render output
+
+**Video Review**:
+The waiting state in which each current Video Clip Candidate is approved or replaced by a newly generated candidate. All current clip candidates must be approved before composition begins.
+_Avoid_: Final approval, video generation
+
+**Composition Review**:
+The waiting state in which a Final Composition Candidate is approved or rejected. Approval completes the Video Task; rejection creates a replacement Final Composition Candidate from the approved inputs.
+_Avoid_: Video review, retry
+
 **Task Cancellation**:
 The requested and confirmed stop of a non-terminal Video Task. Cancellation preserves the task and its Execution Log until the user separately deletes the terminal task.
 _Avoid_: Task deletion, retry cancellation

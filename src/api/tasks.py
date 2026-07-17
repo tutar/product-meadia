@@ -11,10 +11,11 @@ from src.models.category import Category
 from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
+from src.models.video_candidate import VideoCandidate
 from src.models.viral_analysis import ViralAnalysis
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate,
-    ImageResponse, ImageReview, ViralAnalysisResponse,
+    ImageResponse, ImageReview, CandidateReview, VideoCandidateResponse, ViralAnalysisResponse,
 )
 from src.auth.deps import get_current_user
 from src.tasks.execution import stage_for_node
@@ -24,7 +25,11 @@ from src.api.media import get_media_service
 from src.services.media_service import MediaService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "compositing")
+ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "video_review", "compositing", "composition_review")
+
+
+def blocks_new_task(task: VideoTask) -> bool:
+    return task.status in ACTIVE_TASK_STATUSES and not is_stale_task(task.status, task.updated_at)
 
 
 async def owned_task(db, user, task_id):
@@ -62,7 +67,7 @@ async def create_task(
             VideoTask.status.in_(ACTIVE_TASK_STATUSES),
         ).order_by(VideoTask.created_at.desc()).limit(1)
     )).scalar_one_or_none()
-    if existing:
+    if existing and blocks_new_task(existing):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"message": "An active task already exists", "task_id": str(existing.id)},
@@ -253,6 +258,49 @@ async def regenerate_image(
     return {"status": "queued"}
 
 
+@router.get("/{task_id}/video-candidates", response_model=list[VideoCandidateResponse])
+async def list_video_candidates(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service)):
+    await owned_task(db, user, task_id)
+    candidates = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id).order_by(VideoCandidate.kind, VideoCandidate.sort_order, VideoCandidate.version))).all()
+    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "kind": candidate.kind, "sort_order": candidate.sort_order, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current} for candidate in candidates]
+
+
+@router.put("/{task_id}/video-candidates/{candidate_id}")
+async def review_video_candidate(task_id: UUID, candidate_id: UUID, body: CandidateReview, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    task = await owned_task(db, user, task_id)
+    candidate = await db.scalar(select(VideoCandidate).where(VideoCandidate.id == candidate_id, VideoCandidate.task_id == task_id, VideoCandidate.is_current.is_(True)))
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Current video candidate not found")
+    candidate.status = "approved" if body.action == "approve" else "rejected"
+    if candidate.kind == "composition" and body.action == "approve":
+        task.status = "done"
+        task.result_video_asset_id = candidate.asset_id
+    elif candidate.kind == "clip" and body.action == "approve":
+        remaining = await db.scalar(select(func.count(VideoCandidate.id)).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "clip", VideoCandidate.is_current.is_(True), VideoCandidate.status != "approved"))
+        if remaining == 0:
+            task.status = "compositing"
+    await db.commit()
+    if task.status == "compositing":
+        from src.tasks.video_tasks import run_video_task
+        run_video_task.delay(str(task_id))
+    return {"status": "ok"}
+
+
+@router.post("/{task_id}/video-candidates/{candidate_id}/regenerate", status_code=status.HTTP_202_ACCEPTED)
+async def regenerate_video_candidate(task_id: UUID, candidate_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    task = await owned_task(db, user, task_id)
+    candidate = await db.scalar(select(VideoCandidate).where(VideoCandidate.id == candidate_id, VideoCandidate.task_id == task_id, VideoCandidate.is_current.is_(True)))
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Current video candidate not found")
+    candidate.status = "rejected"
+    candidate.is_current = False
+    task.status = "compositing" if candidate.kind == "composition" else "video_gen"
+    await db.commit()
+    from src.tasks.video_tasks import run_video_task
+    run_video_task.delay(str(task_id))
+    return {"status": "queued"}
+
+
 @router.post("/{task_id}/resume")
 async def resume_task(
     task_id: UUID,
@@ -317,7 +365,7 @@ async def download_video(
 ):
     result = await db.execute(select(VideoTask).where(VideoTask.id == task_id, VideoTask.user_id == user.id))
     task = result.scalar_one_or_none()
-    if not task or task.status != "done":
+    if not task or task.status not in ("done", "composition_review"):
         raise HTTPException(status_code=404, detail="Video not ready")
     if not task.result_video_asset_id:
         raise HTTPException(status_code=404, detail="Video not ready")

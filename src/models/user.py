@@ -8,3 +8,5 @@ class User(Base, UUIDMixin, TimestampMixin):
     google_id = Column(String(255), unique=True, nullable=True)
     role = Column(String(20), nullable=False, default="customer")  # "customer" | "operator"
     is_active = Column(Boolean, default=True)
+    auto_approve_script = Column(Boolean, nullable=False, default=False)
+    auto_approve_images = Column(Boolean, nullable=False, default=False)

@@ -18,6 +18,11 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReviewPreferences(BaseModel):
+    auto_approve_script: bool = False
+    auto_approve_images: bool = False
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

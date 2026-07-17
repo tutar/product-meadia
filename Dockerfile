@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y curl libpq5 && \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-RUN npx hyperframes --version || npm install -g hyperframes
+RUN npm install -g hyperframes && hyperframes --version
 
 COPY src/ ./src/
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

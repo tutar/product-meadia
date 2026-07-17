@@ -24,5 +24,6 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     product = relationship("Product")
     script = relationship("Script", back_populates="task", uselist=False)
     images = relationship("GeneratedImage", back_populates="task")
+    video_candidates = relationship("VideoCandidate", back_populates="task")
     viral_analysis = relationship("ViralAnalysis", back_populates="task", uselist=False)
     result_video_asset = relationship("MediaAsset", foreign_keys=[result_video_asset_id])

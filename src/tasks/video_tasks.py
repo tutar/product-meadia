@@ -10,6 +10,8 @@ from src.tasks.celery_app import celery_app
 from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
+from src.models.video_candidate import VideoCandidate
+from src.models.user import User
 from src.models.viral_analysis import ViralAnalysis
 from src.agents.state import VideoAgentState
 from src.ws.progress import progress_manager
@@ -252,6 +254,34 @@ async def _async_run(task_id: str, celery_task_id: str):
                     next_review = review_status_for_node(last_node)
                     async with SessionLocal() as db:
                         t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+                        user = await db.scalar(select(User).where(User.id == t.user_id))
+                        auto_approve = (
+                            last_node in ("generate_script", "generate_rewritten_script") and user.auto_approve_script
+                        ) or (
+                            last_node in ("generate_images", "generate_character") and user.auto_approve_images
+                        )
+                        if auto_approve:
+                            if last_node in ("generate_script", "generate_rewritten_script"):
+                                script = await db.scalar(select(Script).where(Script.task_id == task_id))
+                                if script:
+                                    script.status = "approved"
+                                t.status = "imaging"
+                            else:
+                                images = (await db.scalars(select(GeneratedImage).where(GeneratedImage.task_id == task_id))).all()
+                                for image in images:
+                                    image.status = "approved"
+                                t.status = "video_gen"
+                            t.progress_log = list(t.progress_log or []) + [{
+                                "attempt": attempt_number, "stage": execution_stage(last_node),
+                                "step": f"wait_{next_review}", "time": _dt.datetime.utcnow().isoformat() + "Z",
+                                "status": "ok", "summary": "Automatically approved by user preference",
+                            }]
+                            await db.commit()
+                            from src.tasks.video_tasks import run_video_task
+                            run_video_task.delay(task_id)
+                            reset_execution_reporter(reporter_token)
+                            reporter_token = None
+                            return
                         t.status = next_review
                         wait_entry = {
                             "attempt": attempt_number,
@@ -322,6 +352,13 @@ async def _async_run(task_id: str, celery_task_id: str):
                     t.progress_log = latest_log
                     progress_log = latest_log
                     await db.commit()
+
+                # Video and final composition are explicit review boundaries.
+                # Their persisted candidates let a later resume reuse approved inputs.
+                if node_name in ("generate_video_clips", "composite_video", "composite"):
+                    reset_execution_reporter(reporter_token)
+                    reporter_token = None
+                    return
 
         # Graph completed without hitting an interrupt — collect final video path
         final_video = ""
@@ -464,8 +501,12 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                         idempotency_key=f"task:{task_id}:video-clip:{index}",
                     )
                     asset_ids.append(str(asset.id))
+                    previous = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "clip", VideoCandidate.sort_order == index, VideoCandidate.is_current.is_(True)))).all()
+                    for candidate in previous:
+                        candidate.is_current = False
+                    db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="clip", sort_order=index, version=len(previous) + 1, status="pending_review"))
                 output["video_clip_asset_ids"] = asset_ids
-                t.status = "video_gen"
+                t.status = "video_review"
                 await db.commit()
 
         elif node_name in ("generate_voiceover", "generate_clips_and_voiceover", "generate_tts_and_lipsync"):
@@ -505,7 +546,11 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                     idempotency_key=f"task:{task_id}:final-video",
                 )
                 output["final_video_asset_id"] = str(asset.id)
+                previous = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "composition", VideoCandidate.is_current.is_(True)))).all()
+                for candidate in previous:
+                    candidate.is_current = False
+                db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="composition", sort_order=0, version=len(previous) + 1, status="pending_review"))
                 t.result_video_asset_id = asset.id
                 t.result_video_url = None
-                t.status = "done"
+                t.status = "composition_review"
                 await db.commit()
