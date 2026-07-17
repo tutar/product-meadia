@@ -8,6 +8,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://agent:agent123@postgres:5432/perfume_video
       LITELLM_BASE_URL: http://litellm:4000/v1
+      RUSTFS_BASE_URL: http://rustfs:8001
     volumes:
       - ./src:/app/src
       - /tmp/hyperframes:/tmp/hyperframes
@@ -24,6 +25,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       DATABASE_URL: postgresql+asyncpg://agent:agent123@postgres:5432/perfume_video
       LITELLM_BASE_URL: http://litellm:4000/v1
+      RUSTFS_BASE_URL: http://rustfs:8001
     volumes:
       - ./src:/app/src
       - /tmp/hyperframes:/tmp/hyperframes
