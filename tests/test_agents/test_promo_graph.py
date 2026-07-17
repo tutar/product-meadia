@@ -130,6 +130,31 @@ async def test_reused_video_clips_are_marked_so_the_worker_can_continue_after_re
 
 
 @pytest.mark.asyncio
+async def test_composition_feedback_regenerates_tts_from_clean_voiceover_text():
+    graph = build_promo_graph(interrupt_before=[])
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "script_content": "[Scene 1] raw production script", "edited_script_content": "",
+        "voiceover_text": "Clean narration for speech.", "image_prompts": ["prompt"],
+        "generated_images": [{"image_url": "https://image", "status": "approved"}],
+        "video_clips": ["https://clip"], "tts_audio_url": "https://old-audio", "tts_words": [],
+        "tts_duration_seconds": 5, "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
+        "hyperframes_html": "", "final_video_path": "", "script_approved": True, "images_approved": True,
+        "review_approved": False, "review_feedback": [{"id": "feedback-1", "target_type": "composition", "content": "Fix the spoken language."}],
+        "video_feedback_by_sort_order": {}, "messages": [],
+    }
+    with patch("src.agents.promo_graph.llm_chat", new_callable=AsyncMock) as llm, patch("src.agents.promo_graph.generate_tts", new_callable=AsyncMock) as tts, patch("src.agents.promo_graph.render_hyperframes", new_callable=AsyncMock, return_value="final.mp4"):
+        llm.return_value = '{"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}'
+        tts.return_value = {"audio_url": "https://new-audio", "words": [], "tts_duration_seconds": 12}
+        events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "composition-feedback"}})]
+
+    voiceover = next(event["generate_voiceover"] for event in events if "generate_voiceover" in event)
+    assert tts.await_args.args == ("Clean narration for speech.",)
+    assert voiceover["tts_generation_key"] == "feedback:feedback-1"
+
+
+@pytest.mark.asyncio
 async def test_clip_feedback_replaces_only_the_rejected_clip():
     graph = build_promo_graph(interrupt_before=[])
     state = {

@@ -8,6 +8,7 @@ from typing import Any
 ARTIFACT_STATE_KEYS = (
     "video_clip_asset_ids",
     "tts_audio_asset_id",
+    "tts_duration_seconds",
     "tts_words",
     "lipsync_video_asset_id",
     "character_image_asset_id",

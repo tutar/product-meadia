@@ -112,7 +112,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "viral_url": "",
                 "script_content": "", "edited_script_content": "", "image_prompts": [],
                 "voiceover_text": "", "generated_images": [], "video_clips": [], "video_clips_reused": False,
-                "tts_audio_url": "", "tts_duration_seconds": 0.0, "tts_words": [], "lipsync_video_url": "",
+                "tts_audio_url": "", "tts_duration_seconds": 0.0, "tts_generation_key": "initial", "tts_words": [], "lipsync_video_url": "",
                 "character_image_url": "", "viral_analysis": {},
                 "hyperframes_html": "", "final_video_path": "",
                 "review_approved": False, "script_approved": False,
@@ -580,7 +580,7 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                     source_url=output["tts_audio_url"], filename=f"{task_id}-voice.wav",
                     fetch=_fetch_provider_media, task_id=t.id,
                     source_provider="tts-provider",
-                    idempotency_key=f"task:{task_id}:tts-audio",
+                    idempotency_key=f"task:{task_id}:tts-audio:{output.get('tts_generation_key', 'initial')}",
                 )
                 output["tts_audio_asset_id"] = str(asset.id)
                 if output.get("lipsync_video_url"):
@@ -600,18 +600,23 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
             if output.get("final_video_path"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                 media = MediaService(db, create_rustfs_storage(settings))
+                candidates = (await db.scalars(select(VideoCandidate).where(
+                    VideoCandidate.task_id == task_id,
+                    VideoCandidate.kind == "composition",
+                ))).all()
+                next_version = max((candidate.version for candidate in candidates), default=0) + 1
                 asset = await media.create_from_remote(
                     owner_user_id=t.user_id, category="final_video",
                     source_url=output["final_video_path"], filename=f"{task_id}-final.mp4",
                     fetch=_fetch_provider_media, task_id=t.id,
                     source_provider="renderer",
-                    idempotency_key=f"task:{task_id}:final-video",
+                    idempotency_key=f"task:{task_id}:final-video:{next_version}",
                 )
                 output["final_video_asset_id"] = str(asset.id)
-                previous = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "composition", VideoCandidate.is_current.is_(True)))).all()
+                previous = [candidate for candidate in candidates if candidate.is_current]
                 for candidate in previous:
                     candidate.is_current = False
-                db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="composition", sort_order=0, version=len(previous) + 1, status="pending_review"))
+                db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="composition", sort_order=0, version=next_version, status="pending_review"))
                 t.result_video_asset_id = asset.id
                 t.result_video_url = None
                 t.status = "composition_review"

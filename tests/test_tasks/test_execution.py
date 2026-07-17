@@ -43,6 +43,19 @@ async def _result(value):
     return value
 
 
+@pytest.mark.asyncio
+async def test_fetch_provider_media_keeps_wav_content_type(tmp_path):
+    from src.tasks.video_tasks import _fetch_provider_media
+
+    audio = tmp_path / "voice.wav"
+    audio.write_bytes(b"wav")
+
+    data, content_type = await _fetch_provider_media(str(audio))
+
+    assert data == b"wav"
+    assert content_type == "audio/x-wav"
+
+
 def test_video_worker_uses_loop_safe_database_connections():
     from src.tasks.video_tasks import engine
 

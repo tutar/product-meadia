@@ -32,6 +32,7 @@ class VideoAgentState(TypedDict):
 
     tts_audio_url: str
     tts_duration_seconds: float
+    tts_generation_key: str
     tts_words: list[dict]
 
     lipsync_video_url: str

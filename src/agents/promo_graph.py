@@ -60,6 +60,14 @@ async def composition_options(state: VideoAgentState) -> dict:
         return defaults
 
 
+def composition_feedback_key(state: VideoAgentState) -> str:
+    feedback_ids = [
+        item["id"] for item in state.get("review_feedback", [])
+        if item.get("target_type") == "composition" and item.get("id")
+    ]
+    return "feedback:" + ":".join(feedback_ids) if feedback_ids else "initial"
+
+
 def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     if interrupt_before is None:
         interrupt_before = ["wait_script_review", "wait_image_review"]
@@ -129,14 +137,15 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         return {"video_clips": clips, "video_clips_reused": False}
 
     async def generate_voiceover(state: VideoAgentState) -> dict:
-        if state.get("tts_audio_url"):
+        if state.get("tts_audio_url") and not review_guidance(state, "composition"):
             return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"]}
-        script = state.get("edited_script_content") or state["script_content"]
-        result = await generate_tts(script)
+        voiceover = state.get("voiceover_text") or state.get("edited_script_content") or state["script_content"]
+        result = await generate_tts(voiceover)
         return {
             "tts_audio_url": result["audio_url"],
             "tts_words": result["words"],
             "tts_duration_seconds": result["tts_duration_seconds"],
+            "tts_generation_key": composition_feedback_key(state),
         }
 
     async def composite_video(state: VideoAgentState) -> dict:
