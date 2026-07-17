@@ -142,7 +142,7 @@ export default function TaskDetailPage() {
       </div>
 
       {isProcessing && (
-        <div className="card mb-6" style={{ background: task.status === "pending" ? "rgba(124,92,252,0.06)" : "rgba(124,92,252,0.04)", borderColor: "var(--accent)" }}>
+        <div className="card mb-6" style={{ background: "var(--accent-soft)", borderColor: "var(--accent)" }}>
           <div className="flex items-center justify-between">
             <div>
               <p style={{ fontWeight: 600, marginBottom: 4 }}>

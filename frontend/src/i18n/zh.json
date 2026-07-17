@@ -1,7 +1,19 @@
 {
   "app": {
-    "title": "VidFlow",
+    "title": "ProductMedia",
     "subtitle": "AI 短视频创作工坊 · 电商专用"
+  },
+  "theme": {
+    "studio": "科技",
+    "work": "工作",
+    "switchToWork": "切换到工作主题",
+    "switchToStudio": "切换到科技主题"
+  },
+  "profile": {
+    "openMenu": "打开账户菜单",
+    "closeMenu": "关闭账户菜单",
+    "appearance": "主题",
+    "language": "语言"
   },
   "nav": {
     "dashboard": "工作台",

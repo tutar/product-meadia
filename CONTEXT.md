@@ -35,3 +35,43 @@ _Avoid_: Media file, output file, mutable asset
 **Unavailable Media**:
 A legacy or retained Media Asset whose bytes can no longer be read and which must be regenerated before use.
 _Avoid_: Missing URL, broken file
+
+**Video Task**:
+One user-owned request to generate a product video. It preserves the product snapshot, generated outputs, and its execution history independently of later product changes.
+_Avoid_: Job, render request
+
+**Execution Attempt**:
+One contiguous run of a Video Task, including a retry. Attempts are retained in order so a later successful retry does not obscure an earlier failure.
+_Avoid_: Retry log, task run
+
+**Execution Log**:
+The durable, user-visible history of a Video Task's execution attempts, stages, and substeps. It contains safe progress and diagnostic summaries, not prompts, raw model responses, or sensitive configuration.
+_Avoid_: Debug log, provider trace
+
+**Execution Stage**:
+A user-meaningful grouping within an Execution Attempt, such as scriptwriting, image generation, video generation, or composition.
+_Avoid_: Graph node, pipeline step
+
+**Execution Substep**:
+An observable unit of work or human-review wait within an Execution Stage, with a lifecycle, timing, and safe output or error summary.
+_Avoid_: Internal node, log line
+
+**Task Cancellation**:
+The requested and confirmed stop of a non-terminal Video Task. Cancellation preserves the task and its Execution Log until the user separately deletes the terminal task.
+_Avoid_: Task deletion, retry cancellation
+
+**Cancellation Requested**:
+The non-terminal state after a user asks to stop a Video Task while its current remote operation is still being allowed to finish or time out. No later Execution Substep may start from this state.
+_Avoid_: Failed, cancelled
+
+**Cancelled Task**:
+A terminal Video Task whose work was stopped by Task Cancellation. It is distinct from a failed task and may be deleted.
+_Avoid_: Failed task, deleted task
+
+**Task Deletion**:
+The irreversible removal of a terminal Video Task and its task-owned business records. It schedules task-exclusive Persistent Media for the established retention cleanup rather than making their bytes immediately inaccessible through an untracked deletion.
+_Avoid_: Task cancellation, archive
+
+**Task-Exclusive Media**:
+Persistent Media owned by one Video Task and not referenced by a Product or another surviving business record. Task Deletion may schedule only Task-Exclusive Media for cleanup.
+_Avoid_: Generated media, task output

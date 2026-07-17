@@ -1,7 +1,19 @@
 {
   "app": {
-    "title": "VidFlow",
+    "title": "ProductMedia",
     "subtitle": "AI-powered short video studio for e-commerce"
+  },
+  "theme": {
+    "studio": "Studio",
+    "work": "Work",
+    "switchToWork": "Switch to work theme",
+    "switchToStudio": "Switch to studio theme"
+  },
+  "profile": {
+    "openMenu": "Open account menu",
+    "closeMenu": "Close account menu",
+    "appearance": "Appearance",
+    "language": "Language"
   },
   "nav": {
     "dashboard": "Dashboard",
