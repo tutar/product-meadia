@@ -1,4 +1,5 @@
 import pytest
+import inspect
 from sqlalchemy.pool import NullPool
 
 from src.tasks.execution import (
@@ -46,6 +47,12 @@ def test_video_worker_uses_loop_safe_database_connections():
     from src.tasks.video_tasks import engine
 
     assert isinstance(engine.pool, NullPool)
+
+
+def test_video_task_runner_does_not_shadow_its_datetime_alias():
+    from src.tasks.video_tasks import _async_run
+
+    assert "import datetime as _dt" not in inspect.getsource(_async_run)
 
 
 def test_workflow_nodes_have_user_visible_execution_stages():

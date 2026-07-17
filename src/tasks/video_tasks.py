@@ -89,7 +89,6 @@ async def _async_run(task_id: str, celery_task_id: str):
     attempt_number = 1
     node_started_at = _dt.datetime.utcnow()
     reporter_token = None
-    import datetime as _dt
     try:
         async with SessionLocal() as db:
             result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
