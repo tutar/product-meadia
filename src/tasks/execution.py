@@ -56,6 +56,26 @@ def execution_timing(started_at: str, finished_at: str) -> int:
     return max(0, int((finished - started).total_seconds() * 1000))
 
 
+def next_execution_attempt(history: list[dict], *, is_retry: bool) -> int:
+    """Keep an approved-review resume in its attempt and number a retry anew."""
+    latest = max((entry.get("attempt", 1) for entry in history), default=0)
+    return max(1, latest + (1 if is_retry else 0))
+
+
+def review_status_for_node(node_name: str | None) -> str:
+    return {
+        "generate_script": "script_review",
+        "generate_rewritten_script": "script_review",
+        "generate_images": "image_review",
+        "generate_character": "character_review",
+    }.get(node_name or "", "script_review")
+
+
+def safe_error_summary(error: Exception) -> str:
+    """Expose a useful failure class without persisting provider payloads."""
+    return f"{type(error).__name__}: substep failed"
+
+
 class NodeExecutionError(RuntimeError):
     def __init__(self, node_name: str, cause: Exception):
         super().__init__(str(cause))

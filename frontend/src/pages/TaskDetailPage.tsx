@@ -221,7 +221,7 @@ export default function TaskDetailPage() {
               </button>
               {attemptOpen && stages.map(({ stage, entries }) => {
                 const stageKey = `${attemptKey}:${stage}`;
-                const stageDefault = isOpenByDefault(entries) || attempt === attempts.at(-1)?.attempt;
+                const stageDefault = isOpenByDefault(entries);
                 const stageOpen = expanded[stageKey] ?? stageDefault;
                 return <div key={stageKey} style={{ margin: "8px 0 0 14px", borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => toggle(stageKey, stageDefault)} aria-expanded={stageOpen}>

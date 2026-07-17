@@ -16,7 +16,8 @@ from src.ws.progress import progress_manager
 from src.agents.checkpoint import get_checkpointer
 from src.tasks.execution import (
     ARTIFACT_STATE_KEYS, NodeExecutionError, execution_stage, execution_timing,
-    reset_execution_reporter, set_execution_reporter, stage_for_node,
+    next_execution_attempt, reset_execution_reporter, review_status_for_node,
+    safe_error_summary, set_execution_reporter, stage_for_node,
 )
 
 # Celery invokes each task through asyncio.run(), creating a new event loop.
@@ -93,9 +94,7 @@ async def _async_run(task_id: str, celery_task_id: str):
             task = result.scalar_one()
             # A failed task starts a new Execution Attempt; ordinary resumes
             # after a review stay within the existing attempt.
-            previous_attempts = [entry.get("attempt", 1) for entry in task.progress_log or []]
-            attempt_number = max(previous_attempts, default=0) + (1 if task.status == "failed" else 0)
-            attempt_number = max(attempt_number, 1)
+            attempt_number = next_execution_attempt(task.progress_log or [], is_retry=task.status == "failed")
             media = MediaService(db, create_rustfs_storage(settings))
             snapshot = task.product_snapshot
             if snapshot.get("version") != 1:
@@ -250,13 +249,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                 # Track last meaningful node for interrupt detection
                 if node_name == "__interrupt__":
                     # Map to the correct review state based on what ran last
-                    review_map = {
-                        "generate_script": "script_review",
-                        "generate_rewritten_script": "script_review",
-                        "generate_images": "image_review",
-                        "generate_character": "character_review",
-                    }
-                    next_review = review_map.get(last_node, "script_review")
+                    next_review = review_status_for_node(last_node)
                     async with SessionLocal() as db:
                         t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                         t.status = next_review
@@ -358,7 +351,7 @@ async def _async_run(task_id: str, celery_task_id: str):
             "time": _dt.datetime.utcnow().isoformat() + "Z",
             "finished_at": _dt.datetime.utcnow().isoformat() + "Z",
             "status": "error",
-            "summary": f"{type(root_error).__name__}: {str(root_error)[:300]}"
+            "summary": safe_error_summary(root_error)
         }
         async with SessionLocal() as db:
             t = (await db.execute(
@@ -366,7 +359,7 @@ async def _async_run(task_id: str, celery_task_id: str):
             )).scalar_one()
             t.status = "failed"
             t.current_step = stage_for_node(failed_node)
-            t.error_message = f"{type(root_error).__name__}: {root_error}"
+            t.error_message = safe_error_summary(root_error)
             latest_log = list(t.progress_log or [])
             for index in range(len(latest_log) - 1, -1, -1):
                 candidate = latest_log[index]
