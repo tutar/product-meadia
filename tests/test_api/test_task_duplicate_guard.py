@@ -7,7 +7,7 @@ from src.api.tasks import ACTIVE_TASK_STATUSES, blocks_new_task
 def test_duplicate_guard_covers_every_active_task_status():
     assert set(ACTIVE_TASK_STATUSES) == {
         "pending", "scripting", "script_review", "imaging",
-        "image_review", "video_gen", "video_review", "compositing", "composition_review",
+        "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review",
     }
     assert "done" not in ACTIVE_TASK_STATUSES
     assert "failed" not in ACTIVE_TASK_STATUSES

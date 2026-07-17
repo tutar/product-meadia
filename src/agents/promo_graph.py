@@ -1,4 +1,5 @@
 import json
+import math
 from langgraph.graph import StateGraph, END
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
@@ -21,14 +22,42 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <html><head><style>
   body {{ margin:0; background:#000; font-family:sans-serif; }}
   .clip {{ position:absolute; width:100%; height:100%; object-fit:cover; }}
-  .subtitle {{ position:absolute; bottom:10%; width:100%; text-align:center; color:#fff; font-size:32px; text-shadow:0 2px 8px rgba(0,0,0,0.8); }}
+  .subtitle {{ position:absolute; bottom:{subtitle_offset}%; width:100%; text-align:center; color:#fff; font-size:{subtitle_size}px; text-shadow:0 2px 8px rgba(0,0,0,0.8); }}
 </style></head><body>
 <div data-composition-id="promo-video" data-start="0" data-duration="{total_duration}" data-width="1152" data-height="768">
-  <audio src="{audio_url}" data-start="0"></audio>
+  <audio id="voiceover" src="{audio_url}" data-start="0" data-duration="{total_duration}" data-track-index="10" data-volume="1"></audio>
   {video_elements}
   {subtitle_elements}
 </div>
 </body></html>"""
+
+
+def review_guidance(state: VideoAgentState, target_type: str, target_id: str | None = None) -> str:
+    guidance = [item["content"] for item in state.get("review_feedback", [])
+                if item.get("target_type") == target_type and (target_id is None or item.get("target_id") == target_id)]
+    return "\n\nReviewer improvement guidance:\n" + "\n".join(guidance) if guidance else ""
+
+
+async def composition_options(state: VideoAgentState) -> dict:
+    defaults = {"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}
+    guidance = review_guidance(state, "composition")
+    if not guidance:
+        return defaults
+    result = await llm_chat(
+        "composition_designer",
+        "Return only JSON with clip_duration (3-7), subtitle_offset (6-18), and subtitle_size (24-42).",
+        "Adjust this video composition using the reviewer guidance:" + guidance,
+        temperature=0.2,
+    )
+    try:
+        proposed = json.loads(result)
+        return {
+            "clip_duration": min(7, max(3, int(proposed.get("clip_duration", 5)))),
+            "subtitle_offset": min(18, max(6, int(proposed.get("subtitle_offset", 10)))),
+            "subtitle_size": min(42, max(24, int(proposed.get("subtitle_size", 32)))),
+        }
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return defaults
 
 
 def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
@@ -41,7 +70,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("script_content") and state.get("image_prompts"):
             return {}
         info = state["product_info"]
-        prompt = format_product_context(info)
+        prompt = format_product_context(info) + review_guidance(state, "script")
         system = SCRIPT_SYSTEM.format(image_count=state["image_count"])
         result = await llm_chat("scriptwriter", system, prompt, temperature=0.7)
         data = json.loads(result)
@@ -71,37 +100,59 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             if old and old.get("image_url") and old.get("status") in ("approved", "pending_review"):
                 images.append(old)
             else:
-                url = await generate_image(p)
+                url = await generate_image(p + review_guidance(state, "image", old.get("id") if old else None))
                 images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
         return {"generated_images": images}
 
     async def generate_video_clips(state: VideoAgentState) -> dict:
-        if state.get("video_clips"):
+        feedback_by_index = state.get("video_feedback_by_sort_order", {})
+        if state.get("video_clips") and not feedback_by_index:
             return {"video_clips": state["video_clips"], "video_clips_reused": True}
         approved_urls = [img["image_url"] for img in state.get("generated_images", []) if img.get("status") == "approved"]
+        if state.get("video_clips") and feedback_by_index:
+            clips = list(state["video_clips"])
+            for index, guidance in feedback_by_index.items():
+                if index >= len(approved_urls):
+                    continue
+                clips[index] = await generate_video(
+                    prompt=f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}\n\nReviewer improvement guidance:\n{guidance}",
+                    image_urls=[approved_urls[index]],
+                )
+            return {"video_clips": clips, "video_clips_reused": False, "regenerated_clip_indexes": list(feedback_by_index)}
         clips = []
         for url in approved_urls:
             clip_url = await generate_video(
-                prompt=f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}",
+                prompt=f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}" + review_guidance(state, "video_clip"),
                 image_urls=[url],
             )
             clips.append(clip_url)
         return {"video_clips": clips, "video_clips_reused": False}
 
     async def generate_voiceover(state: VideoAgentState) -> dict:
-        if state.get("tts_audio_url") and state.get("tts_words"):
+        if state.get("tts_audio_url"):
             return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"]}
         script = state.get("edited_script_content") or state["script_content"]
         result = await generate_tts(script)
-        return {"tts_audio_url": result["audio_url"], "tts_words": result["words"]}
+        return {
+            "tts_audio_url": result["audio_url"],
+            "tts_words": result["words"],
+            "tts_duration_seconds": result["tts_duration_seconds"],
+        }
 
     async def composite_video(state: VideoAgentState) -> dict:
-        total_duration = len(state.get("video_clips", [])) * 5 or 30
+        clips = state.get("video_clips", [])
+        options = await composition_options(state)
+        clip_duration = options["clip_duration"]
+        visual_duration = len(clips) * clip_duration
+        word_duration = max((word["end"] for word in state.get("tts_words", [])), default=0)
+        total_duration = max(float(state.get("tts_duration_seconds") or 0), word_duration, visual_duration) or 30
         video_elements = ""
-        for i, url in enumerate(state.get("video_clips", [])):
+        for i in range(math.ceil(total_duration / clip_duration)):
+            url = clips[i % len(clips)] if clips else ""
+            duration = min(clip_duration, total_duration - i * clip_duration)
             video_elements += (
-                f'<video class="clip" src="{url}" data-start="{i * 5}" '
-                f'data-duration="5" muted playsinline></video>\n'
+                f'<video id="clip-{i}" class="clip" src="{url}" data-start="{i * clip_duration}" '
+                f'data-duration="{duration}" data-track-index="0" muted playsinline></video>\n'
             )
 
         subtitle_elements = ""
@@ -116,6 +167,8 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             audio_url=state["tts_audio_url"],
             video_elements=video_elements,
             subtitle_elements=subtitle_elements,
+            subtitle_offset=options["subtitle_offset"],
+            subtitle_size=options["subtitle_size"],
         )
         path = await render_hyperframes(html)
         return {"hyperframes_html": html, "final_video_path": path}

@@ -85,7 +85,7 @@ export default function TaskWorkspacePage() {
 
   return <section className="task-workspace" aria-label={t("nav.dashboard")}>
     <aside className="task-queue" aria-label={t("dashboard.title")}>
-      <div className="task-queue-heading"><div><span className="eyebrow">{t("nav.dashboard")}</span><h1>{t("dashboard.title")}</h1></div><button className="btn btn-primary btn-sm" onClick={startCreate}>{t("dashboard.newVideo")}</button></div>
+      <div className="task-queue-heading"><div><span className="eyebrow">{t("nav.dashboard")}</span><h1>{t("dashboard.title")}</h1><small>{tasks.length} {t("dashboard.title").toLowerCase()}</small></div><button className="btn btn-primary btn-sm" onClick={startCreate}>{t("dashboard.newVideo")}</button></div>
       <div className="task-queue-filters">
         <select aria-label={t("products.category")} value={categoryId} onChange={event => changeCategory(event.target.value)}><option value="">{t("products.allCategories")}</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select>
         <select aria-label={t("task.product")} value={productId} onChange={event => changeProduct(event.target.value)}><option value="">{t("task.selectProduct")}</option>{products.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}</select>

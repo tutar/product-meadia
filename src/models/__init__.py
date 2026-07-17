@@ -10,6 +10,7 @@ from src.models.catalog_initialization import CatalogInitialization
 from src.models.category import Category, CategoryAttribute
 from src.models.main_image_candidate import MainImageCandidate
 from src.models.outbox_event import OutboxEvent
+from src.models.review_feedback import ReviewFeedback
 
 __all__ = [
     "Base",
@@ -20,6 +21,7 @@ __all__ = [
     "MainImageCandidate",
     "OutboxEvent",
     "Product",
+    "ReviewFeedback",
     "Script",
     "User",
     "VideoCandidate",

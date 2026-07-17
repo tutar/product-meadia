@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import case, select, func
@@ -12,10 +14,11 @@ from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
+from src.models.review_feedback import ReviewFeedback
 from src.models.viral_analysis import ViralAnalysis
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate,
-    ImageResponse, ImageReview, CandidateReview, VideoCandidateResponse, ViralAnalysisResponse,
+    ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
 )
 from src.auth.deps import get_current_user
 from src.tasks.execution import stage_for_node
@@ -25,7 +28,7 @@ from src.api.media import get_media_service
 from src.services.media_service import MediaService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "video_review", "compositing", "composition_review")
+ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review")
 
 
 def blocks_new_task(task: VideoTask) -> bool:
@@ -39,6 +42,24 @@ async def owned_task(db, user, task_id):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+def validated_feedback(feedback: str | None) -> str:
+    value = (feedback or "").strip()
+    if not 5 <= len(value) <= 1000:
+        raise HTTPException(status_code=422, detail="Feedback must contain 5 to 1000 characters")
+    return value
+
+
+def record_feedback(db: AsyncSession, task: VideoTask, target_type: str, target_id: UUID | None, feedback: str) -> None:
+    db.add(ReviewFeedback(task_id=task.id, target_type=target_type, target_id=target_id, content=feedback))
+    task.progress_log = list(task.progress_log or []) + [{
+        "stage": target_type,
+        "step": "review_feedback",
+        "time": datetime.utcnow().isoformat() + "Z",
+        "status": "ok",
+        "summary": "Improvement guidance recorded for regeneration",
+    }]
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -171,10 +192,10 @@ async def update_script(
         script.edited_content = body.edited_content
     if body.image_prompts is not None:
         script.image_prompts = body.image_prompts
+    task_result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
+    task = task_result.scalar_one()
     if body.approved:
         script.status = "approved"
-        task_result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
-        task = task_result.scalar_one()
         task.status = "imaging"
         await db.commit()
         await db.refresh(script)
@@ -182,8 +203,13 @@ async def update_script(
         from src.tasks.video_tasks import run_video_task
         run_video_task.delay(str(task_id))
     else:
+        record_feedback(db, task, "script", script.id, validated_feedback(body.feedback))
+        script.status = "rejected"
+        task.status = "scripting"
         await db.commit()
         await db.refresh(script)
+        from src.tasks.video_tasks import run_video_task
+        run_video_task.delay(str(task_id))
     return script
 
 
@@ -194,7 +220,7 @@ async def list_images(
     user: User = Depends(get_current_user),
     media: MediaService = Depends(get_media_service),
 ):
-    await owned_task(db, user, task_id)
+    task = await owned_task(db, user, task_id)
     result = await db.execute(
         select(GeneratedImage).where(GeneratedImage.task_id == task_id).order_by(GeneratedImage.sort_order)
     )
@@ -225,7 +251,11 @@ async def review_image(
     img = result.scalar_one_or_none()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
+    if body.action not in ("approve", "reject"):
+        raise HTTPException(status_code=422, detail="Unsupported image review action")
     img.status = "approved" if body.action == "approve" else "rejected"
+    if body.action == "reject":
+        record_feedback(db, task, "image", img.id, validated_feedback(body.feedback))
     await db.commit()
 
     if body.action == "approve":
@@ -250,19 +280,55 @@ async def review_image(
 async def regenerate_image(
     task_id: UUID,
     image_id: UUID,
+    body: RegenerateRequest,
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
-    await owned_task(db, user, task_id)
+    task = await owned_task(db, user, task_id)
     result = await db.execute(
         select(GeneratedImage).where(GeneratedImage.id == image_id, GeneratedImage.task_id == task_id)
     )
     img = result.scalar_one_or_none()
     if not img:
         raise HTTPException(status_code=404, detail="Image not found")
-    img.status = "pending_review"
+    record_feedback(db, task, "image", img.id, validated_feedback(body.feedback))
+    img.status = "rejected"
     img.image_url = None
+    task.status = "imaging"
     await db.commit()
+    from src.tasks.video_tasks import run_video_task
+    run_video_task.delay(str(task_id))
+    return {"status": "queued"}
+
+
+@router.put("/{task_id}/characters/{image_id}")
+async def review_character(
+    task_id: UUID,
+    image_id: UUID,
+    body: ImageReview,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    task = await owned_task(db, user, task_id)
+    character = await db.scalar(select(GeneratedImage).where(
+        GeneratedImage.id == image_id,
+        GeneratedImage.task_id == task_id,
+        GeneratedImage.prompt == "character",
+    ))
+    if not character:
+        raise HTTPException(status_code=404, detail="Character image not found")
+    if body.action not in ("approve", "reject"):
+        raise HTTPException(status_code=422, detail="Unsupported character review action")
+    if body.action == "approve":
+        character.status = "approved"
+        task.status = "scripting"
+    else:
+        character.status = "rejected"
+        record_feedback(db, task, "character", character.id, validated_feedback(body.feedback))
+        task.status = "scripting"
+    await db.commit()
+    from src.tasks.video_tasks import run_video_task
+    run_video_task.delay(str(task_id))
     return {"status": "queued"}
 
 
@@ -279,7 +345,11 @@ async def review_video_candidate(task_id: UUID, candidate_id: UUID, body: Candid
     candidate = await db.scalar(select(VideoCandidate).where(VideoCandidate.id == candidate_id, VideoCandidate.task_id == task_id, VideoCandidate.is_current.is_(True)))
     if not candidate:
         raise HTTPException(status_code=404, detail="Current video candidate not found")
+    if body.action not in ("approve", "reject"):
+        raise HTTPException(status_code=422, detail="Unsupported video review action")
     candidate.status = "approved" if body.action == "approve" else "rejected"
+    if body.action == "reject":
+        record_feedback(db, task, "composition" if candidate.kind == "composition" else "video_clip", candidate.id, validated_feedback(body.feedback))
     if candidate.kind == "composition" and body.action == "approve":
         task.status = "done"
         task.result_video_asset_id = candidate.asset_id
@@ -295,11 +365,14 @@ async def review_video_candidate(task_id: UUID, candidate_id: UUID, body: Candid
 
 
 @router.post("/{task_id}/video-candidates/{candidate_id}/regenerate", status_code=status.HTTP_202_ACCEPTED)
-async def regenerate_video_candidate(task_id: UUID, candidate_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+async def regenerate_video_candidate(task_id: UUID, candidate_id: UUID, body: RegenerateRequest, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
     task = await owned_task(db, user, task_id)
     candidate = await db.scalar(select(VideoCandidate).where(VideoCandidate.id == candidate_id, VideoCandidate.task_id == task_id, VideoCandidate.is_current.is_(True)))
     if not candidate:
         raise HTTPException(status_code=404, detail="Current video candidate not found")
+    # Recomposition and clip regeneration are both a rejected review decision.
+    # Recording the feedback before dispatching keeps the retry fully auditable.
+    record_feedback(db, task, "composition" if candidate.kind == "composition" else "video_clip", candidate.id, validated_feedback(body.feedback))
     candidate.status = "rejected"
     candidate.is_current = False
     task.status = "compositing" if candidate.kind == "composition" else "video_gen"

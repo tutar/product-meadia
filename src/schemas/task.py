@@ -28,6 +28,7 @@ class ScriptUpdate(BaseModel):
     approved: bool
     edited_content: str | None = None
     image_prompts: list[str] | None = None
+    feedback: str | None = None
 
 
 class ImageResponse(BaseModel):
@@ -45,10 +46,16 @@ class ImageResponse(BaseModel):
 
 class ImageReview(BaseModel):
     action: str
+    feedback: str | None = None
 
 
 class CandidateReview(BaseModel):
     action: str
+    feedback: str | None = None
+
+
+class RegenerateRequest(BaseModel):
+    feedback: str
 
 
 class VideoCandidateResponse(BaseModel):

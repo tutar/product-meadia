@@ -112,6 +112,10 @@
     "characterReview": "Character Review",
     "characterDesc": "Review the AI-generated character before continuing.",
     "approveCharacter": "Approve Character",
+    "requestRewrite": "Request rewrite",
+    "regenerateCharacter": "Regenerate character",
+    "feedbackHelp": "Describe what should improve in the next generation.",
+    "confirmRegeneration": "Confirm regeneration",
     "loading": "Loading..."
   },
   "execution": {

@@ -62,6 +62,8 @@ type TaskDetailPageProps = {
   onTaskLoaded?: (task: any) => void;
 };
 
+type FeedbackDialog = { title: string; submit: (feedback: string) => Promise<void> };
+
 export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageProps) {
   const { t } = useTranslation();
   const { id: routeTaskId } = useParams<{ id: string }>();
@@ -77,6 +79,8 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const actionRef = useRef(new Set<string>());
   const [busyActions, setBusyActions] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [feedbackDialog, setFeedbackDialog] = useState<FeedbackDialog | null>(null);
+  const [feedback, setFeedback] = useState("");
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
     actionRef.current.add(key); setBusyActions([...actionRef.current]);
@@ -135,24 +139,41 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     await runAction("script", async () => { setLoading(true); try { await api.put(`/tasks/${id}/script`, { approved: true, edited_content: editedContent }); await fetchData(); } finally { setLoading(false); } });
   };
 
-  const approveCharacter = async () => {
-    await runAction("character", async () => { setLoading(true); try { await api.put(`/tasks/${id}/script`, { approved: true }); await fetchData(); } finally { setLoading(false); } });
+  const rejectScript = async (suggestion: string) => {
+    await api.put(`/tasks/${id}/script`, { approved: false, feedback: suggestion });
+    await fetchData();
+  };
+
+  const reviewCharacter = async (imageId: string, action: "approve" | "reject", suggestion?: string) => {
+    await runAction("character", async () => { setLoading(true); try { await api.put(`/tasks/${id}/characters/${imageId}`, { action, feedback: suggestion }); await fetchData(); } finally { setLoading(false); } });
   };
 
   const reviewImage = async (imageId: string, action: "approve" | "reject") => {
     await runAction(`image:${imageId}`, async () => { await api.put(`/tasks/${id}/images/${imageId}`, { action }); const { data } = await api.get(`/tasks/${id}/images`); setImages(data); if (data.every((i: any) => i.status === "approved")) await fetchData(); });
   };
 
-  const regenerateImage = async (imageId: string) => {
-    await runAction(`image:${imageId}`, async () => { await api.post(`/tasks/${id}/images/${imageId}/regenerate`); const { data } = await api.get(`/tasks/${id}/images`); setImages(data); });
+  const regenerateImage = async (imageId: string, suggestion: string) => {
+    await runAction(`image:${imageId}`, async () => { await api.post(`/tasks/${id}/images/${imageId}/regenerate`, { feedback: suggestion }); await fetchData(); });
   };
 
   const reviewVideoCandidate = async (candidateId: string, action: "approve" | "reject") => {
     await runAction(`video:${candidateId}`, async () => { await api.put(`/tasks/${id}/video-candidates/${candidateId}`, { action }); await fetchData(); });
   };
 
-  const regenerateVideoCandidate = async (candidateId: string) => {
-    await runAction(`video:${candidateId}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidateId}/regenerate`); await fetchData(); });
+  const regenerateVideoCandidate = async (candidateId: string, suggestion: string) => {
+    await runAction(`video:${candidateId}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidateId}/regenerate`, { feedback: suggestion }); await fetchData(); });
+  };
+
+  const openFeedback = (title: string, submit: (suggestion: string) => Promise<void>) => {
+    setFeedback("");
+    setFeedbackDialog({ title, submit });
+  };
+
+  const submitFeedback = async () => {
+    const suggestion = feedback.trim();
+    if (suggestion.length < 5 || suggestion.length > 1000 || !feedbackDialog) return;
+    await feedbackDialog.submit(suggestion);
+    setFeedbackDialog(null);
   };
 
   if (!task) return <div className="empty-state"><p>{t("task.loading")}</p></div>;
@@ -167,6 +188,9 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const isReview = REVIEW_STATES.includes(task.status);
   const statusLabel = String(t(`steps.${task.status}`, task.status.replace(/_/g, " ")));
   const titleKey = task.type === "promo" ? "task.promoTitle" : task.type === "viral" ? "task.viralTitle" : "task.personifyTitle";
+  const taskName = task.product_snapshot?.name || String(t(titleKey));
+  const categoryName = task.product_snapshot?.category?.name;
+  const statusClass = task.status === "failed" ? "is-failed" : task.status === "done" ? "is-done" : isReview ? "is-review" : "is-running";
   const nodeLabel = (step: string) => t(`execution.steps.${step}`, step.replace(/_/g, " "));
   const entrySummary = (entry: any) => {
     if (entry.summary) return String(entry.summary);
@@ -178,36 +202,26 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
 
   return (
     <div className="task-detail">
-      <div className="flex items-center justify-between mb-6">
+      <header className="task-context-header">
         <div>
-          <h1>{t(titleKey)}</h1>
-          <p className="text-secondary text-sm mt-3">{t("task.status")}: {statusLabel}</p>
+          <span className="eyebrow">{t(titleKey)}</span>
+          <h1>{taskName}</h1>
+          <p className="task-context-meta">{categoryName && <span>{categoryName}</span>}<span>{statusLabel}</span>{task.created_at && <time>{new Date(task.created_at).toLocaleDateString()}</time>}</p>
         </div>
-        {task.status === "failed" && <span className="badge badge-failed">{t("task.failed")}</span>}
-        {task.status === "done" && <span className="badge badge-done">{t("task.complete")}</span>}
-      </div>
+        <span className={`task-status-chip ${statusClass}`}>{statusLabel}</span>
+      </header>
 
       {isProcessing && (
-        <div className="card mb-6" style={{ background: "var(--accent-soft)", borderColor: "var(--accent)" }}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p style={{ fontWeight: 600, marginBottom: 4 }}>
-                {task.status === "pending" ? t("task.readyToStart") : `${t("task.running")} — ${statusLabel}`}
-              </p>
-              <p className="text-secondary text-sm">
-                {task.status === "pending" ? t("task.clickResume") : t("task.autoPolling")}
-              </p>
-            </div>
-            {task.status === "pending" ? (
-              <ResumeButton taskId={task.id} onResumed={fetchData} />
-            ) : (
-              <span style={{ color: "var(--accent)", fontSize: "0.85rem" }}>⏳</span>
-            )}
+        <div className="task-live-status">
+          <div>
+            <strong>{task.status === "pending" ? t("task.readyToStart") : `${t("task.running")} · ${statusLabel}`}</strong>
+            <span>{task.status === "pending" ? t("task.clickResume") : t("task.autoPolling")}</span>
           </div>
+          {task.status === "pending" ? <ResumeButton taskId={task.id} onResumed={fetchData} /> : <span className="task-live-indicator" aria-hidden="true" />}
         </div>
       )}
 
-      <div className="steps mb-6">
+      <div className="steps task-progress" aria-label={t("task.status")}>
         {STEPS_DISPLAY.filter(s => !s.includes("review")).map((s, i) => {
           const realIdx = STEPS_DISPLAY.indexOf(s);
           const cls = realIdx < currentStepIdx || task.status === "done"
@@ -297,7 +311,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
               <div className="flex gap-3 mt-3">
                 {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
                   <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>Approve</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => regenerateVideoCandidate(candidate.id)}>{candidate.kind === "clip" ? "Regenerate clip" : "Recompose"}</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(candidate.kind === "clip" ? "Regenerate clip" : "Recompose", suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? "Regenerate clip" : "Recompose"}</button>
                 </>}
               </div>
             </div>
@@ -319,6 +333,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
             <button className="btn btn-primary" onClick={approveScript} disabled={loading}>
               {loading ? t("task.submitting") : t("task.approveContinue")}
             </button>
+            <button className="btn btn-ghost" onClick={() => openFeedback(t("task.requestRewrite"), rejectScript)} disabled={loading}>{t("task.requestRewrite")}</button>
           </div>
         </div>
       )}
@@ -346,10 +361,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                       <button className="btn btn-primary btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>{t("task.approve")}</button>
                     )}
                     {img.status !== "approved" && (
-                      <button className="btn btn-ghost btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => reviewImage(img.id, "reject")}>{t("task.reject")}</button>
-                    )}
-                    {img.status === "rejected" && (
-                      <button className="btn btn-ghost btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => regenerateImage(img.id)}>{t("task.regen")}</button>
+                      <button className="btn btn-ghost btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => openFeedback(t("task.regen"), suggestion => regenerateImage(img.id, suggestion))}>{t("task.regen")}</button>
                     )}
                   </div>
                 )}
@@ -363,9 +375,22 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         <div className="card mb-6">
           <h3 className="mb-4">{t("task.characterReview")}</h3>
           <p className="text-secondary mb-6">{t("task.characterDesc")}</p>
-          <button className="btn btn-primary" onClick={approveCharacter} disabled={loading}>
+          {images.find(image => image.prompt === "character")?.access_url && <img className="image-preview" src={images.find(image => image.prompt === "character").access_url} alt={t("task.characterReview")} />}
+          <button className="btn btn-primary" onClick={() => { const image = images.find(item => item.prompt === "character"); if (image) void reviewCharacter(image.id, "approve"); }} disabled={loading}>
             {loading ? t("task.submitting") : t("task.approveCharacter")}
           </button>
+          <button className="btn btn-ghost ml-3" onClick={() => { const image = images.find(item => item.prompt === "character"); if (image) openFeedback(t("task.regenerateCharacter"), suggestion => reviewCharacter(image.id, "reject", suggestion)); }} disabled={loading}>{t("task.regenerateCharacter")}</button>
+        </div>
+      )}
+      {feedbackDialog && (
+        <div className="review-feedback-backdrop" role="presentation">
+          <section className="review-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="review-feedback-title">
+            <h2 id="review-feedback-title">{feedbackDialog.title}</h2>
+            <p className="text-secondary text-sm">{t("task.feedbackHelp")}</p>
+            <textarea autoFocus className="textarea" value={feedback} onChange={event => setFeedback(event.target.value)} minLength={5} maxLength={1000} />
+            <p className="text-secondary text-sm">{feedback.trim().length}/1000</p>
+            <div className="task-create-actions"><button className="btn btn-ghost" onClick={() => setFeedbackDialog(null)}>{t("products.cancel")}</button><button className="btn btn-primary" disabled={feedback.trim().length < 5 || feedback.trim().length > 1000} onClick={() => void submitFeedback()}>{t("task.confirmRegeneration")}</button></div>
+          </section>
         </div>
       )}
     </div>

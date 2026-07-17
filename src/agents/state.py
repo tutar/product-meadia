@@ -28,8 +28,10 @@ class VideoAgentState(TypedDict):
     generated_images: list[dict]
     video_clips: list[str]
     video_clips_reused: bool
+    regenerated_clip_indexes: list[int]
 
     tts_audio_url: str
+    tts_duration_seconds: float
     tts_words: list[dict]
 
     lipsync_video_url: str
@@ -44,4 +46,7 @@ class VideoAgentState(TypedDict):
     review_approved: bool
     script_approved: bool
     images_approved: bool
+    character_approved: bool
+    review_feedback: list[dict]
+    video_feedback_by_sort_order: dict[int, str]
     messages: Annotated[list, add_messages]

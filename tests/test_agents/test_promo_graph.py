@@ -80,6 +80,28 @@ async def test_promo_graph_single_step_generate_script():
         # Should have generated script and hit interrupt
         event_keys = [list(e.keys())[0] for e in events if e]
         assert "generate_script" in event_keys
+        assert "Reviewer improvement guidance" not in mock_llm.await_args.args[2]
+
+
+@pytest.mark.asyncio
+async def test_script_review_feedback_is_passed_to_the_next_generation():
+    graph = build_promo_graph()
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "script_content": "", "edited_script_content": "", "image_prompts": [], "voiceover_text": "",
+        "generated_images": [], "video_clips": [], "tts_audio_url": "", "tts_words": [],
+        "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
+        "hyperframes_html": "", "final_video_path": "", "review_approved": False,
+        "script_approved": False, "images_approved": False, "character_approved": False,
+        "review_feedback": [{"target_type": "script", "content": "Use a clearer opening hook."}], "messages": [],
+    }
+    response = '{"script": "script", "voiceover": "script", "image_prompts": ["prompt"]}'
+    with patch("src.agents.promo_graph.llm_chat", new_callable=AsyncMock) as llm:
+        llm.return_value = response
+        async for _ in graph.astream(state, {"configurable": {"thread_id": "feedback"}}):
+            pass
+    assert "Use a clearer opening hook." in llm.await_args.args[2]
 
 
 @pytest.mark.asyncio
@@ -96,9 +118,37 @@ async def test_reused_video_clips_are_marked_so_the_worker_can_continue_after_re
         "images_approved": True, "review_approved": False, "messages": [],
     }
     with patch("src.agents.promo_graph.generate_tts", new_callable=AsyncMock) as tts, patch("src.agents.promo_graph.render_hyperframes", new_callable=AsyncMock) as render:
-        tts.return_value = {"audio_url": "https://audio", "words": []}
+        tts.return_value = {"audio_url": "https://audio", "words": [], "tts_duration_seconds": 12.5}
         render.return_value = "/tmp/final.mp4"
         events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "reuse-clips"}})]
 
     reused_output = next(event["generate_video_clips"] for event in events if "generate_video_clips" in event)
     assert reused_output["video_clips_reused"] is True
+    html = render.await_args.args[0]
+    assert 'data-duration="12.5"' in html
+    assert html.count('<video id="clip-') == 3
+
+
+@pytest.mark.asyncio
+async def test_clip_feedback_replaces_only_the_rejected_clip():
+    graph = build_promo_graph(interrupt_before=[])
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 2,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "script_content": "script", "edited_script_content": "", "image_prompts": ["one", "two"], "voiceover_text": "script",
+        "generated_images": [{"image_url": "https://image-1", "status": "approved"}, {"image_url": "https://image-2", "status": "approved"}],
+        "video_clips": ["https://clip-1", "https://clip-2"], "tts_audio_url": "", "tts_words": [],
+        "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
+        "hyperframes_html": "", "final_video_path": "", "script_approved": True, "images_approved": True,
+        "character_approved": False, "review_approved": False, "review_feedback": [],
+        "video_feedback_by_sort_order": {1: "Make the movement more energetic."}, "messages": [],
+    }
+    with patch("src.agents.promo_graph.generate_video", new_callable=AsyncMock) as video, patch("src.agents.promo_graph.generate_tts", new_callable=AsyncMock) as tts, patch("src.agents.promo_graph.render_hyperframes", new_callable=AsyncMock) as render:
+        video.return_value = "https://replacement"
+        tts.return_value = {"audio_url": "https://audio", "words": [], "tts_duration_seconds": 10}
+        render.return_value = "/tmp/final.mp4"
+        events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "single-clip"}})]
+    output = next(event["generate_video_clips"] for event in events if "generate_video_clips" in event)
+    assert output["video_clips"] == ["https://clip-1", "https://replacement"]
+    assert output["regenerated_clip_indexes"] == [1]
+    assert video.await_count == 1

@@ -112,6 +112,10 @@
     "characterReview": "角色审核",
     "characterDesc": "审核 AI 生成的角色形象后继续。",
     "approveCharacter": "批准角色",
+    "requestRewrite": "退回重写",
+    "regenerateCharacter": "重新生成角色",
+    "feedbackHelp": "请说明下一次生成需要改进的方向。",
+    "confirmRegeneration": "确认重新生成",
     "loading": "加载中..."
   },
   "execution": {

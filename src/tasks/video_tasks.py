@@ -11,6 +11,7 @@ from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
+from src.models.review_feedback import ReviewFeedback
 from src.models.user import User
 from src.models.viral_analysis import ViralAnalysis
 from src.agents.state import VideoAgentState
@@ -30,12 +31,13 @@ SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=
 
 
 async def _fetch_provider_media(url: str) -> tuple[bytes, str]:
+    import mimetypes
     from pathlib import Path
     import httpx
 
     if not url.startswith(("http://", "https://")):
         path = Path(url)
-        return path.read_bytes(), "video/mp4"
+        return path.read_bytes(), mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     async with httpx.AsyncClient(timeout=120) as client:
         response = await client.get(url)
         response.raise_for_status()
@@ -110,11 +112,12 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "viral_url": "",
                 "script_content": "", "edited_script_content": "", "image_prompts": [],
                 "voiceover_text": "", "generated_images": [], "video_clips": [], "video_clips_reused": False,
-                "tts_audio_url": "", "tts_words": [], "lipsync_video_url": "",
+                "tts_audio_url": "", "tts_duration_seconds": 0.0, "tts_words": [], "lipsync_video_url": "",
                 "character_image_url": "", "viral_analysis": {},
                 "hyperframes_html": "", "final_video_path": "",
                 "review_approved": False, "script_approved": False,
-                "images_approved": False, "messages": [],
+                "images_approved": False, "character_approved": False,
+                "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
             }
 
             if task.type == "viral":
@@ -127,10 +130,11 @@ async def _async_run(task_id: str, celery_task_id: str):
             script_result = await db.execute(select(Script).where(Script.task_id == task_id))
             db_script = script_result.scalar_one_or_none()
             if db_script:
-                initial_state["script_content"] = db_script.content or ""
-                initial_state["edited_script_content"] = db_script.edited_content or ""
-                initial_state["image_prompts"] = db_script.image_prompts or []
-                initial_state["voiceover_text"] = db_script.voiceover_text or ""
+                if db_script.status != "rejected":
+                    initial_state["script_content"] = db_script.content or ""
+                    initial_state["edited_script_content"] = db_script.edited_content or ""
+                    initial_state["image_prompts"] = db_script.image_prompts or []
+                    initial_state["voiceover_text"] = db_script.voiceover_text or ""
 
             img_result = await db.execute(
                 select(GeneratedImage).where(GeneratedImage.task_id == task_id).order_by(GeneratedImage.sort_order)
@@ -140,6 +144,8 @@ async def _async_run(task_id: str, celery_task_id: str):
                 initial_state["generated_images"] = [
                     {
                         "sort_order": img.sort_order,
+                        "id": str(img.id),
+                        "prompt": img.prompt,
                         "image_url": await media.access_url(img.asset_id, task.user_id),
                         "asset_id": str(img.asset_id),
                         "status": img.status,
@@ -147,6 +153,29 @@ async def _async_run(task_id: str, celery_task_id: str):
                     for img in db_images
                     if img.asset_id
                 ]
+
+            character = next((img for img in db_images if img.prompt == "character"), None)
+            if character and character.status == "approved":
+                initial_state["character_approved"] = True
+                if character.asset_id:
+                    initial_state["character_image_url"] = await media.access_url(character.asset_id, task.user_id)
+
+            feedback = (await db.scalars(select(ReviewFeedback).where(
+                ReviewFeedback.task_id == task.id,
+                ReviewFeedback.consumed.is_(False),
+            ).order_by(ReviewFeedback.created_at))).all()
+            initial_state["review_feedback"] = [
+                {"id": str(item.id), "target_type": item.target_type,
+                 "target_id": str(item.target_id) if item.target_id else None,
+                 "content": item.content}
+                for item in feedback
+            ]
+            for item in feedback:
+                if item.target_type != "video_clip" or not item.target_id:
+                    continue
+                candidate = await db.scalar(select(VideoCandidate).where(VideoCandidate.id == item.target_id))
+                if candidate:
+                    initial_state["video_feedback_by_sort_order"][candidate.sort_order] = item.content
 
             # Restore outputs of completed expensive nodes. These snapshots
             # make retries resume at the failed small step instead of
@@ -206,6 +235,8 @@ async def _async_run(task_id: str, celery_task_id: str):
             skip.add("wait_script_review")
         if initial_state.get("images_approved"):
             skip.add("wait_image_review")
+        if initial_state.get("character_approved"):
+            skip.add("wait_character_review")
 
         graph = await _make_runnable_graph(task.type, skip)
         config = {"configurable": {"thread_id": task_id}}
@@ -415,6 +446,25 @@ async def _async_run(task_id: str, celery_task_id: str):
 async def _persist_node_output(task_id: str, node_name: str, output: dict):
     """Persist agent node outputs to their corresponding DB tables."""
     async with SessionLocal() as db:
+        feedback_targets = {
+            "generate_script": "script",
+            "generate_rewritten_script": "script",
+            "generate_images": "image",
+            "generate_character": "character",
+            "generate_video_clips": "video_clip",
+            "generate_clips_and_voiceover": "video_clip",
+            "composite_video": "composition",
+            "composite": "composition",
+        }
+        feedback_target = feedback_targets.get(node_name)
+        if feedback_target:
+            items = (await db.scalars(select(ReviewFeedback).where(
+                ReviewFeedback.task_id == task_id,
+                ReviewFeedback.target_type == feedback_target,
+                ReviewFeedback.consumed.is_(False),
+            ))).all()
+            for item in items:
+                item.consumed = True
         if node_name == "generate_script" or node_name == "generate_rewritten_script":
             stmt = select(Script).where(Script.task_id == task_id)
             result = await db.execute(stmt)
@@ -491,20 +541,33 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                 media = MediaService(db, create_rustfs_storage(settings))
                 asset_ids = []
-                for index, url in enumerate(output["video_clips"]):
+                replaced_indexes = set(output.get("regenerated_clip_indexes", []))
+                indexes = sorted(replaced_indexes) if replaced_indexes else range(len(output["video_clips"]))
+                for index in indexes:
+                    url = output["video_clips"][index]
+                    previous_all = (await db.scalars(select(VideoCandidate).where(
+                        VideoCandidate.task_id == task_id,
+                        VideoCandidate.kind == "clip",
+                        VideoCandidate.sort_order == index,
+                    ))).all()
                     asset = await media.create_from_remote(
                         owner_user_id=t.user_id, category="video_clip",
                         source_url=url, filename=f"{task_id}-clip-{index}.mp4",
                         fetch=_fetch_provider_media, task_id=t.id,
                         source_provider="video-provider",
-                        idempotency_key=f"task:{task_id}:video-clip:{index}",
+                        idempotency_key=f"task:{task_id}:video-clip:{index}:{len(previous_all) + 1}",
                     )
                     asset_ids.append(str(asset.id))
                     previous = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "clip", VideoCandidate.sort_order == index, VideoCandidate.is_current.is_(True)))).all()
                     for candidate in previous:
                         candidate.is_current = False
-                    db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="clip", sort_order=index, version=len(previous) + 1, status="pending_review"))
-                output["video_clip_asset_ids"] = asset_ids
+                    db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="clip", sort_order=index, version=len(previous_all) + 1, status="pending_review"))
+                current_candidates = (await db.scalars(select(VideoCandidate).where(
+                    VideoCandidate.task_id == task_id,
+                    VideoCandidate.kind == "clip",
+                    VideoCandidate.is_current.is_(True),
+                ).order_by(VideoCandidate.sort_order))).all()
+                output["video_clip_asset_ids"] = [str(candidate.asset_id) for candidate in current_candidates]
                 t.status = "video_review"
                 await db.commit()
 
