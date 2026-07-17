@@ -33,6 +33,7 @@ Generated images, audio, and video should be persisted in private object storage
 
 - Python 3.11+
 - Node.js 22+
+- HyperFrames CLI (`npm install -g hyperframes`) for final video rendering
 - PostgreSQL
 - Redis
 - LiteLLM (or another compatible model gateway)
@@ -42,7 +43,7 @@ You must also provide credentials and endpoints for the AI/media providers enabl
 
 ## Quick start
 
-1. Prepare the external services above and make sure the API process can reach them. When using the included worker Compose file, place the worker and those services on the same Docker network.
+1. Prepare the external services above and make sure the local API and Celery worker can reach them.
 
 2. Configure the environment:
 
@@ -69,19 +70,24 @@ You must also provide credentials and endpoints for the AI/media providers enabl
 
    Open <http://localhost:5173>.
 
-5. Start Celery worker and beat. The included `docker-compose.yml` starts only these two project services; it expects the external prerequisites to already be available:
+5. Start the local Celery worker from the `perfume-video` conda environment:
 
    ```bash
-   docker compose up -d --build worker beat
+   ./start-worker.sh
    ```
 
-   The worker consumes the `perfume-video` queue. Check its output with `docker compose logs -f worker`.
+   The worker consumes the `perfume-video` queue and uses the host HyperFrames CLI to render final videos. Start scheduled cleanup separately when needed:
 
-For a local, non-Docker worker, use the same environment values and run:
+   ```bash
+   ./start-beat.sh
+   ```
+
+For local development, `./start.sh` starts the API, frontend, and worker together. The scripts use `conda run -n perfume-video`; install Python dependencies in that environment and install HyperFrames on the host:
 
 ```bash
-celery -A src.tasks.celery_app worker --loglevel=info --concurrency=2 -Q perfume-video
-celery -A src.tasks.celery_app beat --loglevel=info
+conda activate perfume-video
+pip install -r requirements.txt
+npm install -g hyperframes
 ```
 
 ## Configuration
