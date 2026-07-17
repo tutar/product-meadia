@@ -14,7 +14,11 @@ from src.models.viral_analysis import ViralAnalysis
 from src.agents.state import VideoAgentState
 from src.ws.progress import progress_manager
 from src.agents.checkpoint import get_checkpointer
-from src.tasks.execution import ARTIFACT_STATE_KEYS, NodeExecutionError, stage_for_node
+from src.tasks.execution import (
+    ARTIFACT_STATE_KEYS, NodeExecutionError, execution_stage, execution_timing,
+    next_execution_attempt, reset_execution_reporter, review_status_for_node,
+    safe_error_summary, set_execution_reporter, stage_for_node,
+)
 
 # Celery invokes each task through asyncio.run(), creating a new event loop.
 # Asyncpg connections cannot move between those loops, so this worker must not
@@ -80,11 +84,17 @@ async def _async_run(task_id: str, celery_task_id: str):
     graph = None
     progress_log: list = []
     last_node = None
+    attempt_number = 1
+    node_started_at = _dt.datetime.utcnow()
+    reporter_token = None
     import datetime as _dt
     try:
         async with SessionLocal() as db:
             result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
             task = result.scalar_one()
+            # A failed task starts a new Execution Attempt; ordinary resumes
+            # after a review stay within the existing attempt.
+            attempt_number = next_execution_attempt(task.progress_log or [], is_retry=task.status == "failed")
             media = MediaService(db, create_rustfs_storage(settings))
             snapshot = task.product_snapshot
             if snapshot.get("version") != 1:
@@ -213,23 +223,50 @@ async def _async_run(task_id: str, celery_task_id: str):
             # entries as the graph advances. The UI polls this field while the
             # task is running, so clearing it here made the log disappear.
             progress_log = list(t.progress_log or [])
+
+        async def record_substep_start(node_name: str) -> None:
+            started_at = _dt.datetime.utcnow().isoformat() + "Z"
+            entry = {
+                "attempt": attempt_number,
+                "stage": execution_stage(node_name),
+                "step": node_name,
+                "time": started_at,
+                "started_at": started_at,
+                "status": "running",
+            }
+            async with SessionLocal() as db:
+                t = (await db.execute(
+                    select(VideoTask).where(VideoTask.id == task_id).with_for_update()
+                )).scalar_one()
+                t.progress_log = list(t.progress_log or []) + [entry]
+                await db.commit()
+            await progress_manager.send_progress(task_id, {"status": execution_stage(node_name)})
+
+        reporter_token = set_execution_reporter(record_substep_start)
+        node_started_at = _dt.datetime.utcnow()
         async for event in stream:
             for node_name, node_output in event.items():
                 # Track last meaningful node for interrupt detection
                 if node_name == "__interrupt__":
                     # Map to the correct review state based on what ran last
-                    review_map = {
-                        "generate_script": "script_review",
-                        "generate_rewritten_script": "script_review",
-                        "generate_images": "image_review",
-                        "generate_character": "character_review",
-                    }
-                    next_review = review_map.get(last_node, "script_review")
+                    next_review = review_status_for_node(last_node)
                     async with SessionLocal() as db:
                         t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                         t.status = next_review
+                        wait_entry = {
+                            "attempt": attempt_number,
+                            "stage": execution_stage(last_node),
+                            "step": f"wait_{next_review}",
+                            "time": _dt.datetime.utcnow().isoformat() + "Z",
+                            "started_at": _dt.datetime.utcnow().isoformat() + "Z",
+                            "status": "waiting",
+                            "summary": "Waiting for user review",
+                        }
+                        t.progress_log = list(t.progress_log or []) + [wait_entry]
                         await db.commit()
                     await progress_manager.send_progress(task_id, {"status": next_review})
+                    reset_execution_reporter(reporter_token)
+                    reporter_token = None
                     return
 
                 if node_output is None:
@@ -239,7 +276,18 @@ async def _async_run(task_id: str, celery_task_id: str):
 
                 # Persist agent outputs to DB and record progress
                 await _persist_node_output(task_id, node_name, node_output)
-                entry = {"step": node_name, "time": _dt.datetime.utcnow().isoformat() + "Z", "status": "ok"}
+                finished_at = _dt.datetime.utcnow()
+                started_at = node_started_at
+                entry = {
+                    "attempt": attempt_number,
+                    "stage": execution_stage(node_name),
+                    "step": node_name,
+                    "time": finished_at.isoformat() + "Z",
+                    "started_at": started_at.isoformat() + "Z",
+                    "finished_at": finished_at.isoformat() + "Z",
+                    "duration_ms": execution_timing(started_at.isoformat() + "Z", finished_at.isoformat() + "Z"),
+                    "status": "ok",
+                }
                 # Summarize output for display
                 if node_name in ("generate_script", "generate_rewritten_script"):
                     entry["summary"] = f"Script generated ({len(node_output.get('script_content',''))} chars)"
@@ -256,13 +304,21 @@ async def _async_run(task_id: str, celery_task_id: str):
                 saved_state = {key: node_output[key] for key in ARTIFACT_STATE_KEYS if key in node_output}
                 if saved_state:
                     entry["state"] = saved_state
-                progress_log.append(entry)
+                node_started_at = finished_at
                 async with SessionLocal() as db:
                     t = (await db.execute(
                         select(VideoTask).where(VideoTask.id == task_id).with_for_update()
                     )).scalar_one()
                     latest_log = list(t.progress_log or [])
-                    latest_log.append(entry)
+                    for index in range(len(latest_log) - 1, -1, -1):
+                        candidate = latest_log[index]
+                        if candidate.get("attempt") == attempt_number and candidate.get("step") == node_name and candidate.get("status") == "running":
+                            entry["started_at"] = candidate["started_at"]
+                            entry["duration_ms"] = execution_timing(entry["started_at"], entry["finished_at"])
+                            latest_log[index] = entry
+                            break
+                    else:
+                        latest_log.append(entry)
                     t.progress_log = latest_log
                     progress_log = latest_log
                     await db.commit()
@@ -279,15 +335,23 @@ async def _async_run(task_id: str, celery_task_id: str):
             t.status = "done"
             await db.commit()
         await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
+        reset_execution_reporter(reporter_token)
+        reporter_token = None
 
     except Exception as e:
+        if reporter_token is not None:
+            reset_execution_reporter(reporter_token)
+            reporter_token = None
         failed_node = e.node_name if isinstance(e, NodeExecutionError) else last_node or "unknown"
         root_error = e.__cause__ if isinstance(e, NodeExecutionError) and e.__cause__ else e
         error_entry = {
+            "attempt": attempt_number,
+            "stage": execution_stage(failed_node),
             "step": failed_node,
             "time": _dt.datetime.utcnow().isoformat() + "Z",
+            "finished_at": _dt.datetime.utcnow().isoformat() + "Z",
             "status": "error",
-            "summary": f"{type(root_error).__name__}: {str(root_error)[:300]}"
+            "summary": safe_error_summary(root_error)
         }
         async with SessionLocal() as db:
             t = (await db.execute(
@@ -295,9 +359,17 @@ async def _async_run(task_id: str, celery_task_id: str):
             )).scalar_one()
             t.status = "failed"
             t.current_step = stage_for_node(failed_node)
-            t.error_message = f"{type(root_error).__name__}: {root_error}"
+            t.error_message = safe_error_summary(root_error)
             latest_log = list(t.progress_log or [])
-            latest_log.append(error_entry)
+            for index in range(len(latest_log) - 1, -1, -1):
+                candidate = latest_log[index]
+                if candidate.get("attempt") == attempt_number and candidate.get("step") == failed_node and candidate.get("status") == "running":
+                    error_entry["started_at"] = candidate["started_at"]
+                    error_entry["duration_ms"] = execution_timing(error_entry["started_at"], error_entry["finished_at"])
+                    latest_log[index] = error_entry
+                    break
+            else:
+                latest_log.append(error_entry)
             t.progress_log = latest_log
             await db.commit()
         await progress_manager.send_progress(task_id, {"status": "failed", "error": str(root_error)})
