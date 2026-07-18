@@ -78,3 +78,30 @@ test("promo workspace reviews an ordered Shot Plan before generating keyframes",
   await page.getByRole("button", { name: "Approve and generate keyframes" }).click();
   await expect(page.getByRole("heading", { name: "Shot Plan" })).toHaveCount(0);
 });
+
+test("promo workspace localizes Shot Plan review for Chinese", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("access_token", "test");
+    localStorage.setItem("i18nextLng", "zh");
+  });
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-plan-zh", route => route.fulfill({ json: {
+    id: "task-plan-zh", status: "shot_plan_review", type: "promo", image_count: 2,
+    product_snapshot: { name: "雪松蜡烛" }, progress_log: [], created_at: "2026-07-18T10:00:00Z",
+  } }));
+  await page.route("**/api/v1/tasks/task-plan-zh/script", route => route.fulfill({ json: {
+    id: "script-1", task_id: "task-plan-zh", content: "脚本", edited_content: null, image_prompts: [], voiceover_text: "脚本", status: "approved",
+  } }));
+  await page.route("**/api/v1/tasks/task-plan-zh/creative-brief", route => route.fulfill({ json: { id: "brief-1", task_id: "task-plan-zh", content: {}, status: "approved" } }));
+  await page.route("**/api/v1/tasks/task-plan-zh/shot-plan", route => route.fulfill({ json: {
+    id: "plan-1", task_id: "task-plan-zh", status: "pending_review", shots: [{ narrative_purpose: "开场", target_duration_seconds: 5, image_prompt: "蜡烛", video_motion_prompt: "环绕" }],
+  } }));
+  await page.route("**/api/v1/tasks/task-plan-zh/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-plan-zh/video-candidates", route => route.fulfill({ json: [] }));
+
+  await page.goto("/tasks/task-plan-zh");
+
+  await expect(page.getByRole("heading", { name: "镜头计划" })).toBeVisible();
+  await expect(page.getByLabel("镜头计划 JSON")).toContainText("开场");
+  await expect(page.getByRole("button", { name: "批准并生成关键帧" })).toBeVisible();
+});

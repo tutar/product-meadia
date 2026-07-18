@@ -357,14 +357,14 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
 
       {videoCandidates.filter(candidate => candidate.is_current).length > 0 && (
         <div className="card mb-6">
-          <h3 className="mb-4">{task.status === "composition_review" ? "Final composition review" : "Video clip review"}</h3>
+          <h3 className="mb-4">{task.status === "composition_review" ? t("task.finalCompositionReview") : t("task.videoClipReview")}</h3>
           {videoCandidates.filter(candidate => candidate.is_current).map(candidate => (
             <div key={candidate.id} className="mb-4">
               {candidate.access_url && <video src={candidate.access_url} controls style={{ width: "100%", borderRadius: "var(--radius)" }} />}
               <div className="flex gap-3 mt-3">
                 {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
-                  <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>Approve</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(candidate.kind === "clip" ? "Regenerate clip" : "Recompose", suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? "Regenerate clip" : "Recompose"}</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>{t("task.approve")}</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(String(candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button>
                 </>}
               </div>
             </div>
@@ -374,19 +374,19 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
 
       {editingBlueprint && (
         <div className="card mb-6">
-          <h3 className="mb-4">Editing Blueprint</h3>
-          <p className="text-secondary text-sm mb-4">Approved deterministic shot order, timing, transitions, subtitles, and audio markers.</p>
+          <h3 className="mb-4">{t("task.editingBlueprint")}</h3>
+          <p className="text-secondary text-sm mb-4">{t("task.editingBlueprintDesc")}</p>
           <pre style={{ whiteSpace: "pre-wrap", color: "var(--text-secondary)", background: "var(--bg)", padding: 16, borderRadius: "var(--radius)" }}>{JSON.stringify(editingBlueprint.entries, null, 2)}</pre>
         </div>
       )}
 
       {creativeBrief && creativeBrief.status === "pending_review" && (
         <div className="card mb-6">
-          <h3 className="mb-4">Creative Brief</h3>
-          <textarea className="textarea" value={creativeBriefDraft} onChange={e => setCreativeBriefDraft(e.target.value)} aria-label="Creative Brief JSON" />
+          <h3 className="mb-4">{t("task.creativeBrief")}</h3>
+          <textarea className="textarea" value={creativeBriefDraft} onChange={e => setCreativeBriefDraft(e.target.value)} aria-label={t("task.creativeBriefJson")} />
           <div className="flex gap-3 mt-4">
-            <button className="btn btn-primary" disabled={busyActions.includes("creative-brief")} onClick={() => void approveCreativeBrief()}>Approve and generate script</button>
-            <button className="btn btn-ghost" onClick={() => openFeedback("Regenerate creative brief", regenerateCreativeBrief)}>Regenerate</button>
+            <button className="btn btn-primary" disabled={busyActions.includes("creative-brief")} onClick={() => void approveCreativeBrief()}>{t("task.approveGenerateScript")}</button>
+            <button className="btn btn-ghost" onClick={() => openFeedback(String(t("task.regenerateCreativeBrief")), regenerateCreativeBrief)}>{t("task.regen")}</button>
           </div>
         </div>
       )}
@@ -412,12 +412,12 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
 
       {shotPlan && shotPlan.status === "pending_review" && (
         <div className="card mb-6">
-          <h3 className="mb-4">Shot Plan</h3>
-          <p className="text-secondary text-sm mb-4">Review the ordered shots before keyframes are generated. Each shot drives its image and motion prompt.</p>
-          <textarea className="textarea" value={shotPlanDraft} onChange={e => setShotPlanDraft(e.target.value)} aria-label="Shot Plan JSON" />
+          <h3 className="mb-4">{t("task.shotPlan")}</h3>
+          <p className="text-secondary text-sm mb-4">{t("task.shotPlanDesc")}</p>
+          <textarea className="textarea" value={shotPlanDraft} onChange={e => setShotPlanDraft(e.target.value)} aria-label={t("task.shotPlanJson")} />
           <div className="flex gap-3 mt-4">
-            <button className="btn btn-primary" disabled={busyActions.includes("shot-plan")} onClick={() => void approveShotPlan()}>Approve and generate keyframes</button>
-            <button className="btn btn-ghost" onClick={() => openFeedback("Regenerate shot plan", regenerateShotPlan)}>Regenerate</button>
+            <button className="btn btn-primary" disabled={busyActions.includes("shot-plan")} onClick={() => void approveShotPlan()}>{t("task.approveGenerateKeyframes")}</button>
+            <button className="btn btn-ghost" onClick={() => openFeedback(String(t("task.regenerateShotPlan")), regenerateShotPlan)}>{t("task.regen")}</button>
           </div>
         </div>
       )}
@@ -426,8 +426,8 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         <div className="card mb-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h3>{shotPlan ? "Keyframe review" : t("task.imageReview")}</h3>
-              {shotPlan && <p className="text-secondary text-sm">Each keyframe belongs to a Shot Plan clip segment.</p>}
+              <h3>{shotPlan ? t("task.keyframeReview") : t("task.imageReview")}</h3>
+              {shotPlan && <p className="text-secondary text-sm">{t("task.keyframeReviewDesc")}</p>}
             </div>
             <span className="text-secondary text-sm">{images.filter((i: any) => i.status === "approved").length}/{images.length} {t("task.approved")}</span>
           </div>
@@ -442,7 +442,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                   </div>
                 )}
                 <div className="image-status">{img.status.replace(/_/g, " ")}</div>
-                {img.generation_context?.keyframe_role && <div className="text-secondary text-sm">Shot {Number(img.generation_context.shot_index) + 1}, segment {Number(img.generation_context.segment_index) + 1} · {img.generation_context.keyframe_role} keyframe</div>}
+                {img.generation_context?.keyframe_role && <div className="text-secondary text-sm">{t("task.keyframeLocation", { shot: Number(img.generation_context.shot_index) + 1, segment: Number(img.generation_context.segment_index) + 1, role: t(`task.keyframeRole${img.generation_context.keyframe_role === "end" ? "End" : "Start"}`) })}</div>}
                 {task.status === "image_review" && (
                   <div className="image-actions">
                     {img.status === "pending_review" && img.access_url && (
