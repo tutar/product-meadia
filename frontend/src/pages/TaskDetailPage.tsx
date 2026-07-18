@@ -241,7 +241,23 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const statusClass = task.status === "failed" ? "is-failed" : FINAL_STATES.includes(task.status) ? "is-done" : isReview ? "is-review" : "is-running";
   const nodeLabel = (step: string) => t(`execution.steps.${step}`, step.replace(/_/g, " "));
   const entrySummary = (entry: any) => {
-    if (entry.summary) return String(entry.summary);
+    const summary = String(entry.summary || "");
+    const scriptGenerated = summary.match(/^Script generated \((\d+) chars\)$/);
+    if (scriptGenerated) return t("execution.summaries.scriptGeneratedWithCharacters", { characters: scriptGenerated[1] });
+    const imagesGenerated = summary.match(/^Images: (\d+) generated\/reused$/);
+    if (imagesGenerated) return t("execution.summaries.imagesGeneratedOrReused", { count: imagesGenerated[1] });
+    const clipsGenerated = summary.match(/^Video clips: (\d+) generated$/);
+    if (clipsGenerated) return t("execution.summaries.videoClipsGenerated", { count: clipsGenerated[1] });
+    if (summary === "TTS audio generated") return t("execution.summaries.ttsAudioGenerated");
+    if (summary.startsWith("Final video:")) return t("execution.summaries.finalVideoRendered");
+    if (summary === "Waiting for user review") return t("execution.summaries.waitingForUserReview");
+    if (summary === "Automatically approved by user preference") return t("execution.summaries.automaticallyApproved");
+    if (summary === "Task cancelled") return t("execution.summaries.taskCancelled");
+    if (summary === "Cancellation requested; no downstream steps will start") return t("execution.summaries.cancellationRequested");
+    if (summary === "Improvement guidance recorded for regeneration") return t("execution.summaries.improvementGuidanceRecorded");
+    const failedSubstep = summary.match(/^([^:]+): substep failed$/);
+    if (failedSubstep) return t("execution.summaries.substepFailed", { errorType: failedSubstep[1] });
+    if (summary) return summary;
     const params = entry.params || {};
     return String(t(`execution.summaries.${entry.step}`, "", params));
   };

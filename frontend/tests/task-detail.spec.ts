@@ -124,3 +124,33 @@ test("task progress localizes the planning node for Chinese", async ({ page }) =
 
   await expect(page.getByLabel("状态").getByText("2. 策划中", { exact: true })).toBeVisible();
 });
+
+test("execution log localizes a known English summary for Chinese", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("access_token", "test");
+    localStorage.setItem("i18nextLng", "zh");
+  });
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-log-zh", route => route.fulfill({ json: {
+    id: "task-log-zh", status: "script_review", type: "promo", image_count: 2,
+    progress_log: [
+      { attempt: 1, stage: "scripting", step: "generate_script", status: "completed", summary: "Script generated (120 chars)" },
+      { attempt: 1, stage: "planning", step: "generate_shot_plan", status: "running" },
+    ],
+  } }));
+  await page.route("**/api/v1/tasks/task-log-zh/script", route => route.fulfill({ json: {
+    id: "script-1", task_id: "task-log-zh", content: "脚本", edited_content: null, image_prompts: [], voiceover_text: "脚本", status: "pending_review",
+  } }));
+  await page.route("**/api/v1/tasks/task-log-zh/creative-brief", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-log-zh/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-log-zh/video-candidates", route => route.fulfill({ json: [] }));
+
+  await page.goto("/tasks/task-log-zh");
+
+  const log = page.getByRole("region", { name: "执行日志" });
+  await log.getByRole("button", { name: "撰写脚本" }).click();
+  await expect(log.getByRole("button", { name: "策划" })).toBeVisible();
+  await expect(log.getByText("生成镜头计划", { exact: true })).toBeVisible();
+  await expect(log.getByText("脚本已生成（120 个字符）", { exact: true })).toBeVisible();
+  await expect(log.getByText("Script generated (120 chars)", { exact: true })).toHaveCount(0);
+});
