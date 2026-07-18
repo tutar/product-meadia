@@ -181,8 +181,11 @@
   },
   "steps": {
     "pending": "排队中",
+    "planning": "策划中",
+    "creative_brief_review": "审核创意简报",
     "scripting": "撰写脚本",
     "script_review": "审核脚本",
+    "shot_plan_review": "审核镜头计划",
     "imaging": "生成图片",
     "image_review": "审核图片",
     "character_review": "审核角色",

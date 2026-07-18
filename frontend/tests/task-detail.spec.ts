@@ -105,3 +105,22 @@ test("promo workspace localizes Shot Plan review for Chinese", async ({ page }) 
   await expect(page.getByLabel("镜头计划 JSON")).toContainText("开场");
   await expect(page.getByRole("button", { name: "批准并生成关键帧" })).toBeVisible();
 });
+
+test("task progress localizes the planning node for Chinese", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("access_token", "test");
+    localStorage.setItem("i18nextLng", "zh");
+  });
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-planning", route => route.fulfill({ json: {
+    id: "task-planning", status: "planning", type: "promo", image_count: 2, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-planning/creative-brief", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-planning/script", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-planning/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-planning/video-candidates", route => route.fulfill({ json: [] }));
+
+  await page.goto("/tasks/task-planning");
+
+  await expect(page.getByLabel("状态").getByText("2. 策划中", { exact: true })).toBeVisible();
+});

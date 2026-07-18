@@ -181,8 +181,11 @@
   },
   "steps": {
     "pending": "Queued",
+    "planning": "Planning",
+    "creative_brief_review": "Review Creative Brief",
     "scripting": "Writing Script",
     "script_review": "Review Script",
+    "shot_plan_review": "Review Shot Plan",
     "imaging": "Generating Images",
     "image_review": "Review Images",
     "character_review": "Review Character",
