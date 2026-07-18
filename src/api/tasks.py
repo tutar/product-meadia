@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, RedirectResponse
-from sqlalchemy import case, select, func
+from sqlalchemy import case, delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from uuid import UUID
@@ -76,7 +76,10 @@ async def delete_task(task_id: UUID, db: AsyncSession = Depends(get_async_sessio
         if not shared_with_product:
             asset.status = "pending_delete"
             asset.delete_after = delete_after
-    await db.delete(task)
+    # Use database cascades for required task-owned rows (script, images and
+    # candidates). ORM deletion otherwise attempts to null their non-null
+    # task_id foreign keys before PostgreSQL can apply ON DELETE CASCADE.
+    await db.execute(delete(VideoTask).where(VideoTask.id == task.id))
     await db.commit()
 
 
