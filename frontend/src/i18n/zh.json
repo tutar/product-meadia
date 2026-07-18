@@ -117,6 +117,7 @@
     "feedbackHelp": "请说明下一次生成需要改进的方向。",
     "confirmRegeneration": "确认重新生成",
     "loading": "加载中..."
+    ,"cancel":"取消任务","delete":"删除任务","cancelConfirm":"确认取消任务？当前远程步骤可能完成，但不会启动后续步骤。","deleteConfirm":"确认删除任务？任务将立即消失，专属媒体将在 7 天后清理。"
   },
   "execution": {
     "title": "执行日志",
@@ -171,6 +172,7 @@
     "composition_review": "审核最终视频",
     "done": "已完成",
     "failed": "失败"
+    ,"cancellation_requested":"取消请求中","cancelled":"已取消"
   },
   "initialization": {"pending":"正在准备样例商品，你现在也可以手动创建。","failed":"样例初始化失败，仍可手动创建。","unavailable":"暂时无法获取初始化状态，仍可手动创建。","manual":"手动创建"},
   "workspace": {"attention":"待处理","recent":"最近任务","noMatches":"没有符合当前筛选条件的任务。"},

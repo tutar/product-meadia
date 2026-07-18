@@ -117,6 +117,7 @@
     "feedbackHelp": "Describe what should improve in the next generation.",
     "confirmRegeneration": "Confirm regeneration",
     "loading": "Loading..."
+    ,"cancel":"Cancel task","delete":"Delete task","cancelConfirm":"Cancel this task? The current remote step may finish, but no downstream steps will start.","deleteConfirm":"Delete this task? It disappears immediately; task-exclusive media is cleaned up after seven days."
   },
   "execution": {
     "title": "Execution Log",
@@ -171,6 +172,7 @@
     "composition_review": "Review Final Video",
     "done": "Complete",
     "failed": "Failed"
+    ,"cancellation_requested":"Cancellation requested","cancelled":"Cancelled"
   },
   "initialization": {"pending":"Sample products are being prepared. You can create products now.","failed":"Sample setup failed; manual creation remains available.","unavailable":"Initialization status is temporarily unavailable; manual creation still works.","manual":"Create manually"},
   "workspace": {"attention":"Needs attention","recent":"Recent","noMatches":"No tasks match these filters."},

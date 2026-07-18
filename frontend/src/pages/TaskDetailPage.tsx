@@ -27,7 +27,7 @@ function ResumeButton({ taskId, onResumed }: { taskId: string; onResumed: () => 
 }
 
 const REVIEW_STATES = ["script_review", "image_review", "character_review", "video_review", "composition_review"];
-const FINAL_STATES = ["done", "failed"];
+const FINAL_STATES = ["done", "failed", "cancelled"];
 const STEPS_DISPLAY = ["pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "video_review", "compositing", "composition_review", "done"];
 const SCRIPT_AVAILABLE_STATES = ["script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 
@@ -134,6 +134,14 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const doResume = async () => {
     await runAction("resume", async () => { setLoading(true); try { await api.post(`/tasks/${id}/resume`); await fetchData(); } finally { setLoading(false); } });
   };
+  const cancelTask = async () => {
+    if (!window.confirm(String(t("task.cancelConfirm")))) return;
+    await runAction("cancel", async () => { await api.post(`/tasks/${id}/cancel`); await fetchData(); });
+  };
+  const deleteTask = async () => {
+    if (!window.confirm(String(t("task.deleteConfirm")))) return;
+    await runAction("delete", async () => { await api.delete(`/tasks/${id}`); window.location.assign("/dashboard"); });
+  };
 
   const approveScript = async () => {
     await runAction("script", async () => { setLoading(true); try { await api.put(`/tasks/${id}/script`, { approved: true, edited_content: editedContent }); await fetchData(); } finally { setLoading(false); } });
@@ -190,7 +198,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const titleKey = task.type === "promo" ? "task.promoTitle" : task.type === "viral" ? "task.viralTitle" : "task.personifyTitle";
   const taskName = task.product_snapshot?.name || String(t(titleKey));
   const categoryName = task.product_snapshot?.category?.name;
-  const statusClass = task.status === "failed" ? "is-failed" : task.status === "done" ? "is-done" : isReview ? "is-review" : "is-running";
+  const statusClass = task.status === "failed" ? "is-failed" : FINAL_STATES.includes(task.status) ? "is-done" : isReview ? "is-review" : "is-running";
   const nodeLabel = (step: string) => t(`execution.steps.${step}`, step.replace(/_/g, " "));
   const entrySummary = (entry: any) => {
     if (entry.summary) return String(entry.summary);
@@ -210,6 +218,11 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
         <span className={`task-status-chip ${statusClass}`}>{statusLabel}</span>
       </header>
+
+      <div className="flex gap-3 mb-6">
+        {!FINAL_STATES.includes(task.status) && task.status !== "cancellation_requested" && <button className="btn btn-ghost btn-sm" disabled={busyActions.includes("cancel")} onClick={() => void cancelTask()}>{t("task.cancel")}</button>}
+        {FINAL_STATES.includes(task.status) && <button className="btn btn-danger-ghost btn-sm" disabled={busyActions.includes("delete")} onClick={() => void deleteTask()}>{t("task.delete")}</button>}
+      </div>
 
       {isProcessing && (
         <div className="task-live-status">

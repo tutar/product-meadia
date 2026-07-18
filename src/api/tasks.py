@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse, RedirectResponse
@@ -16,6 +16,7 @@ from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
 from src.models.review_feedback import ReviewFeedback
 from src.models.viral_analysis import ViralAnalysis
+from src.models.media_asset import MediaAsset
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate,
     ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
@@ -28,7 +29,8 @@ from src.api.media import get_media_service
 from src.services.media_service import MediaService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review")
+ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review", "cancellation_requested")
+TERMINAL_TASK_STATUSES = {"done", "failed", "cancelled"}
 
 
 def blocks_new_task(task: VideoTask) -> bool:
@@ -42,6 +44,40 @@ async def owned_task(db, user, task_id):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+@router.post("/{task_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
+async def cancel_task(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    task = await owned_task(db, user, task_id)
+    if task.status in TERMINAL_TASK_STATUSES:
+        raise HTTPException(status_code=409, detail="Terminal tasks cannot be cancelled")
+    if task.status != "cancellation_requested":
+        task.status = "cancellation_requested"
+        task.progress_log = list(task.progress_log or []) + [{
+            "stage": "other", "step": "cancellation_requested", "time": datetime.utcnow().isoformat() + "Z",
+            "status": "ok", "summary": "Cancellation requested; no downstream steps will start",
+        }]
+        await db.commit()
+    from src.tasks.video_tasks import run_video_task
+    run_video_task.delay(str(task_id))
+    return {"status": "cancellation_requested"}
+
+
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    task = await owned_task(db, user, task_id)
+    if task.status not in TERMINAL_TASK_STATUSES:
+        raise HTTPException(status_code=409, detail="Only terminal tasks can be deleted")
+    assets = (await db.scalars(select(MediaAsset).where(MediaAsset.task_id == task.id))).all()
+    delete_after = datetime.now(timezone.utc) + timedelta(days=7)
+    for asset in assets:
+        shared_with_product = await db.scalar(select(Product.id).where(Product.main_image_asset_id == asset.id).limit(1))
+        asset.task_id = None
+        if not shared_with_product:
+            asset.status = "pending_delete"
+            asset.delete_after = delete_after
+    await db.delete(task)
+    await db.commit()
 
 
 def validated_feedback(feedback: str | None) -> str:

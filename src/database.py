@@ -61,7 +61,7 @@ async def ensure_schema() -> None:
             "ALTER TABLE video_tasks ADD CONSTRAINT video_tasks_status_check "
             "CHECK (status IN ('pending', 'scripting', 'script_review', 'imaging', "
             "'image_review', 'character_review', 'video_gen', 'video_review', "
-            "'compositing', 'composition_review', 'done', 'failed'))"
+            "'compositing', 'composition_review', 'cancellation_requested', 'cancelled', 'done', 'failed'))"
         ))
         await connection.execute(text(
             "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS "

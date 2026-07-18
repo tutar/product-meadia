@@ -30,6 +30,10 @@ engine = create_async_engine(settings.database_url, poolclass=NullPool)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+class TaskCancellationRequested(RuntimeError):
+    pass
+
+
 async def _fetch_provider_media(url: str) -> tuple[bytes, str]:
     import mimetypes
     from pathlib import Path
@@ -95,6 +99,11 @@ async def _async_run(task_id: str, celery_task_id: str):
         async with SessionLocal() as db:
             result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
             task = result.scalar_one()
+            if task.status == "cancellation_requested":
+                task.status = "cancelled"
+                task.progress_log = list(task.progress_log or []) + [{"stage": "other", "step": "cancelled", "time": _dt.datetime.utcnow().isoformat() + "Z", "status": "ok", "summary": "Task cancelled"}]
+                await db.commit()
+                return
             # A failed task starts a new Execution Attempt; ordinary resumes
             # after a review stay within the existing attempt.
             attempt_number = next_execution_attempt(task.progress_log or [], is_retry=task.status == "failed")
@@ -270,6 +279,8 @@ async def _async_run(task_id: str, celery_task_id: str):
                 t = (await db.execute(
                     select(VideoTask).where(VideoTask.id == task_id).with_for_update()
                 )).scalar_one()
+                if t.status == "cancellation_requested":
+                    raise TaskCancellationRequested()
                 t.progress_log = list(t.progress_log or []) + [entry]
                 await db.commit()
             await progress_manager.send_progress(task_id, {"status": execution_stage(node_name)})
@@ -399,12 +410,25 @@ async def _async_run(task_id: str, celery_task_id: str):
 
         async with SessionLocal() as db:
             t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            if t.status == "cancellation_requested":
+                t.status = "cancelled"
+                t.progress_log = list(t.progress_log or []) + [{"stage": "other", "step": "cancelled", "time": _dt.datetime.utcnow().isoformat() + "Z", "status": "ok", "summary": "Task cancelled"}]
+                await db.commit()
+                return
             t.status = "done"
             await db.commit()
         await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
         reset_execution_reporter(reporter_token)
         reporter_token = None
 
+    except TaskCancellationRequested:
+        async with SessionLocal() as db:
+            t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            t.status = "cancelled"
+            t.progress_log = list(t.progress_log or []) + [{"stage": "other", "step": "cancelled", "time": _dt.datetime.utcnow().isoformat() + "Z", "status": "ok", "summary": "Task cancelled"}]
+            await db.commit()
+        await progress_manager.send_progress(task_id, {"status": "cancelled"})
+        return
     except Exception as e:
         if reporter_token is not None:
             reset_execution_reporter(reporter_token)
