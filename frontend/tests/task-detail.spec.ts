@@ -154,3 +154,36 @@ test("execution log localizes a known English summary for Chinese", async ({ pag
   await expect(log.getByText("脚本已生成（120 个字符）", { exact: true })).toBeVisible();
   await expect(log.getByText("Script generated (120 chars)", { exact: true })).toHaveCount(0);
 });
+
+test("regenerating one keyframe keeps other keyframes reviewable", async ({ page }) => {
+  let regenerationStarted = false;
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-batch", route => route.fulfill({ json: {
+    id: "task-batch", status: regenerationStarted ? "imaging" : "image_review", type: "promo", image_count: 2, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-batch/creative-brief", route => route.fulfill({ json: { id: "brief-1", task_id: "task-batch", content: {}, status: "approved" } }));
+  await page.route("**/api/v1/tasks/task-batch/script", route => route.fulfill({ json: {
+    id: "script-1", task_id: "task-batch", content: "A script", edited_content: null, image_prompts: [], voiceover_text: "A script", status: "approved",
+  } }));
+  await page.route("**/api/v1/tasks/task-batch/shot-plan", route => route.fulfill({ json: { id: "plan-1", task_id: "task-batch", shots: [], status: "approved" } }));
+  await page.route("**/api/v1/tasks/task-batch/images", route => route.fulfill({ json: [
+    { id: "image-rejected", status: "rejected", access_url: "https://example.test/rejected.png", generation_context: {} },
+    { id: "image-pending", status: "pending_review", access_url: "https://example.test/pending.png", generation_context: {} },
+  ] }));
+  await page.route("**/api/v1/tasks/task-batch/video-candidates", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-batch/images/image-rejected/regenerate", route => {
+    regenerationStarted = true;
+    return route.fulfill({ status: 202, json: { status: "queued" } });
+  });
+
+  await page.goto("/tasks/task-batch");
+  await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(1);
+  await page.getByRole("button", { name: "Regen" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("textbox").fill("Use a clearer product angle.");
+  await dialog.getByRole("button", { name: "Confirm regeneration" }).click();
+
+  await expect(page.getByText("Running · Generating Images", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(1);
+});
