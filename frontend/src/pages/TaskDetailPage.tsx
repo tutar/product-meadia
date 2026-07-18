@@ -89,11 +89,16 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const [loading, setLoading] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoPreviewRefs = useRef(new Map<string, HTMLVideoElement>());
   const actionRef = useRef(new Set<string>());
   const [busyActions, setBusyActions] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [feedbackDialog, setFeedbackDialog] = useState<FeedbackDialog | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [viewerZoom, setViewerZoom] = useState(1);
+  const [viewerPan, setViewerPan] = useState({ x: 0, y: 0 });
+  const viewerDragRef = useRef<{ x: number; y: number } | null>(null);
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
     actionRef.current.add(key); setBusyActions([...actionRef.current]);
@@ -132,6 +137,19 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   }, [id, onTaskLoaded]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    if (viewerIndex === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setViewerIndex(null);
+      if (event.key === "ArrowLeft") setViewerIndex(index => index === null ? null : (index - 1 + images.length) % images.length);
+      if (event.key === "ArrowRight") setViewerIndex(index => index === null ? null : (index + 1) % images.length);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [viewerIndex, images.length]);
+
+  useEffect(() => { setViewerZoom(1); setViewerPan({ x: 0, y: 0 }); }, [viewerIndex]);
 
   // Local HyperFrames outputs are served by the authenticated API endpoint;
   // fetch them with axios so the bearer token is included, then give the
@@ -214,6 +232,14 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const reviewVideoCandidate = async (candidateId: string, action: "approve" | "reject") => {
     await runAction(`video:${candidateId}`, async () => { await api.put(`/tasks/${id}/video-candidates/${candidateId}`, { action }); await fetchData(); });
   };
+
+  const playVideoPreview = (candidateId: string) => {
+    for (const [id, video] of videoPreviewRefs.current) if (id !== candidateId) video.pause();
+    void videoPreviewRefs.current.get(candidateId)?.play().catch(() => undefined);
+  };
+
+  const openKeyframeViewer = (index: number) => setViewerIndex(index);
+  const moveViewer = (offset: number) => setViewerIndex(index => index === null ? null : (index + offset + images.length) % images.length);
 
   const regenerateVideoCandidate = async (candidateId: string, suggestion: string) => {
     await runAction(`video:${candidateId}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidateId}/regenerate`, { feedback: suggestion }); await fetchData(); });
@@ -380,20 +406,25 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
       )}
 
       {videoCandidates.filter(candidate => candidate.is_current).length > 0 && (
-        <div className="card mb-6">
+        <section className="card mb-6" aria-label={task.status === "composition_review" ? t("task.finalCompositionReview") : t("task.videoClipReview")}>
           <h3 className="mb-4">{task.status === "composition_review" ? t("task.finalCompositionReview") : t("task.videoClipReview")}</h3>
-          {videoCandidates.filter(candidate => candidate.is_current).map(candidate => (
-            <div key={candidate.id} className="mb-4">
-              {candidate.access_url && <video src={candidate.access_url} controls style={{ width: "100%", borderRadius: "var(--radius)" }} />}
-              <div className="flex gap-3 mt-3">
+          <div className="video-review-grid">
+          {videoCandidates.filter(candidate => candidate.is_current).map((candidate, index) => (
+            <article key={candidate.id} className="video-review-card">
+              {candidate.access_url && <div className="video-preview-frame">
+                <video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} />
+                <button type="button" className="video-preview-play" aria-label={t("task.videoClip", { number: index + 1 })} onClick={() => playVideoPreview(candidate.id)}>▶</button>
+              </div>}
+              <div className="video-review-actions">
                 {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
                   <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>{t("task.approve")}</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(String(candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button>
                 </>}
               </div>
-            </div>
+            </article>
           ))}
-        </div>
+          </div>
+        </section>
       )}
 
       {editingBlueprint && (
@@ -456,10 +487,10 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
             <span className="text-secondary text-sm">{images.filter((i: any) => i.status === "approved").length}/{images.length} {t("task.approved")}</span>
           </div>
           <div className="image-grid">
-            {images.map((img: any) => (
+            {images.map((img: any, imageIndex: number) => (
               <div key={img.id} className="image-card">
                 {img.access_url ? (
-                  <img src={img.access_url} alt="" />
+                  <button type="button" className="keyframe-open" aria-label={t("task.viewKeyframe", { number: imageIndex + 1 })} onClick={() => openKeyframeViewer(imageIndex)}><img src={img.access_url} alt="" /></button>
                 ) : (
                   <div style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
                     {t("task.regenerating")}
@@ -492,6 +523,21 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
             {loading ? t("task.submitting") : t("task.approveCharacter")}
           </button>
           <button className="btn btn-ghost ml-3" onClick={() => { const image = images.find(item => item.prompt === "character"); if (image) openFeedback(t("task.regenerateCharacter"), suggestion => reviewCharacter(image.id, "reject", suggestion)); }} disabled={loading}>{t("task.regenerateCharacter")}</button>
+        </div>
+      )}
+      {viewerIndex !== null && images[viewerIndex] && (
+        <div className="keyframe-viewer-backdrop" role="presentation">
+          <section className="keyframe-viewer" role="dialog" aria-modal="true" aria-label={t("task.keyframeViewer")}>
+            <header><span>{viewerIndex + 1} / {images.length}</span><div><button type="button" className="btn btn-ghost btn-sm" onClick={() => { setViewerZoom(1); setViewerPan({ x: 0, y: 0 }); }}>{t("task.fitToScreen")}</button><button type="button" className="btn btn-ghost btn-sm" onClick={() => { setViewerZoom(1); setViewerPan({ x: 0, y: 0 }); }}>{t("task.actualSize")}</button><button type="button" className="btn btn-ghost btn-sm" aria-label={t("task.closeViewer")} onClick={() => setViewerIndex(null)}>×</button></div></header>
+            <div className="keyframe-viewer-body">
+              <button type="button" className="keyframe-nav" aria-label={t("task.previousKeyframe")} onClick={() => moveViewer(-1)}>‹</button>
+              <div className="keyframe-canvas" onWheel={event => { event.preventDefault(); setViewerZoom(value => Math.min(3, Math.max(.5, value + (event.deltaY < 0 ? .15 : -.15)))); }} onPointerDown={event => { viewerDragRef.current = { x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (!viewerDragRef.current) return; setViewerPan(value => ({ x: value.x + event.clientX - viewerDragRef.current!.x, y: value.y + event.clientY - viewerDragRef.current!.y })); viewerDragRef.current = { x: event.clientX, y: event.clientY }; }} onPointerUp={() => { viewerDragRef.current = null; }}>
+                <img src={images[viewerIndex].access_url} alt={`Keyframe ${viewerIndex + 1}`} style={{ transform: `translate(${viewerPan.x}px, ${viewerPan.y}px) scale(${viewerZoom})` }} />
+              </div>
+              <button type="button" className="keyframe-nav" aria-label={t("task.nextKeyframe")} onClick={() => moveViewer(1)}>›</button>
+              <aside className="keyframe-viewer-actions"><p>{t("task.keyframeLocation", { shot: Number(images[viewerIndex].generation_context?.shot_index || 0) + 1, segment: Number(images[viewerIndex].generation_context?.segment_index || 0) + 1, role: t(`task.keyframeRole${images[viewerIndex].generation_context?.keyframe_role === "end" ? "End" : "Start"}`) })}</p><button className="btn btn-primary" onClick={() => reviewImage(images[viewerIndex].id, "approve")}>{t("task.approve")}</button><button className="btn btn-ghost" onClick={() => openFeedback(t("task.regen"), suggestion => regenerateImage(images[viewerIndex].id, suggestion))}>{t("task.regen")}</button></aside>
+            </div>
+          </section>
         </div>
       )}
       {feedbackDialog && (

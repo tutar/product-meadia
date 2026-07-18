@@ -179,6 +179,57 @@ test("execution log keeps legacy image feedback in the image-generation stage", 
   await expect(log.getByRole("button", { name: "image", exact: true })).toHaveCount(0);
 });
 
+test("video clip review presents four clips as a desktop contact sheet", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-video-grid", route => route.fulfill({ json: {
+    id: "task-video-grid", status: "video_review", type: "promo", image_count: 4, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-video-grid/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-video-grid/video-candidates", route => route.fulfill({ json: [1, 2, 3, 4].map(index => ({
+    id: `clip-${index}`, kind: "clip", is_current: true, status: "pending_review", access_url: `https://example.test/clip-${index}.mp4`,
+  })) }));
+
+  await page.goto("/tasks/task-video-grid");
+
+  const review = page.getByRole("region", { name: "Video clip review" });
+  const clips = review.getByLabel(/Video clip \d/);
+  await expect(clips).toHaveCount(4);
+  const positions = await clips.evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect();
+    return { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width) };
+  }));
+  expect(new Set(positions.map(position => position.y)).size).toBe(1);
+  expect(positions.every(position => position.width > 200)).toBe(true);
+});
+
+test("keyframe review opens a full-screen viewer with keyboard navigation", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer", route => route.fulfill({ json: {
+    id: "task-keyframe-viewer", status: "image_review", type: "promo", image_count: 2, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/creative-brief", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/script", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/shot-plan", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/images", route => route.fulfill({ json: [
+    { id: "keyframe-1", status: "pending_review", access_url: "https://example.test/keyframe-1.png", generation_context: {} },
+    { id: "keyframe-2", status: "pending_review", access_url: "https://example.test/keyframe-2.png", generation_context: {} },
+  ] }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/video-candidates", route => route.fulfill({ json: [] }));
+
+  await page.goto("/tasks/task-keyframe-viewer");
+  await page.getByRole("button", { name: "View keyframe 1" }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Keyframe viewer" });
+  await expect(viewer.getByRole("img", { name: "Keyframe 1" })).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer.getByRole("img", { name: "Keyframe 2" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
+});
+
 test("regenerating one keyframe keeps other keyframes reviewable", async ({ page }) => {
   let regenerationStarted = false;
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));

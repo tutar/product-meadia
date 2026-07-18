@@ -118,6 +118,7 @@
     "confirmRegeneration": "确认重新生成",
     "finalCompositionReview": "成片审核",
     "videoClipReview": "视频片段审核",
+    "videoClip": "视频片段 {{number}}",
     "regenerateClip": "重新生成片段",
     "recompose": "重新合成",
     "editingBlueprint": "剪辑蓝图",
@@ -136,6 +137,13 @@
     "keyframeLocation": "镜头 {{shot}}，片段 {{segment}} · {{role}}关键帧",
     "keyframeRoleStart": "起始",
     "keyframeRoleEnd": "结束",
+    "viewKeyframe": "查看关键帧 {{number}}",
+    "keyframeViewer": "关键帧查看器",
+    "previousKeyframe": "上一关键帧",
+    "nextKeyframe": "下一关键帧",
+    "closeViewer": "关闭查看器",
+    "fitToScreen": "适应屏幕",
+    "actualSize": "100%",
     "loading": "加载中..."
     ,"cancel":"取消任务","delete":"删除任务","cancelConfirm":"确认取消任务？当前远程步骤可能完成，但不会启动后续步骤。","deleteConfirm":"确认删除任务？任务将立即消失，专属媒体将在 7 天后清理。"
   },
