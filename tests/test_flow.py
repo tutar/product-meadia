@@ -11,14 +11,14 @@ pytestmark = pytest.mark.integration
 
 
 async def _register_and_login(email: str, password: str) -> str:
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         await c.post(f"{API}/auth/register", json={"email": email, "password": password})
         r = await c.post(f"{API}/auth/token", json={"grant_type": "password", "email": email, "password": password})
         return r.json()["access_token"]
 
 
 async def _create_category(token: str, name: str) -> dict:
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         response = await c.post(
             f"{API}/categories", headers={"Authorization": f"Bearer {token}"},
             json={"name": name, "attributes": []},
@@ -29,7 +29,7 @@ async def _create_category(token: str, name: str) -> dict:
 
 async def _upload_main_image(token: str) -> str:
     pixel = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl5W3cAAAAASUVORK5CYII=")
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         response = await c.post(
             f"{API}/products/main-image/upload", headers={"Authorization": f"Bearer {token}"},
             files={"file": ("product.png", pixel, "image/png")},
@@ -41,7 +41,7 @@ async def _upload_main_image(token: str) -> str:
 async def _create_product(token: str, name: str) -> str:
     category = await _create_category(token, f"{name} category")
     asset_id = await _upload_main_image(token)
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         r = await c.post(f"{API}/products", headers={"Authorization": f"Bearer {token}"}, json={
             "category_id": category["id"], "category_template_version": category["template_version"],
             "name": name, "scenarios": ["test"], "main_image_asset_id": asset_id,
@@ -51,24 +51,24 @@ async def _create_product(token: str, name: str) -> str:
 
 
 async def _create_task(token: str, product_id: str, task_type: str = "promo", image_count: int = 2) -> str:
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         r = await c.post(f"{API}/tasks", headers={"Authorization": f"Bearer {token}"}, json={"product_id": product_id, "type": task_type, "image_count": image_count})
         return r.json()["id"]
 
 
 async def _get_task(token: str, task_id: str) -> dict:
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         r = await c.get(f"{API}/tasks/{task_id}", headers={"Authorization": f"Bearer {token}"})
         return r.json()
 
 
 async def _resume(token: str, task_id: str):
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         return await c.post(f"{API}/tasks/{task_id}/resume", headers={"Authorization": f"Bearer {token}"})
 
 
 async def _approve_script(token: str, task_id: str):
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         r = await c.put(f"{API}/tasks/{task_id}/script", headers={"Authorization": f"Bearer {token}"}, json={"approved": True})
     # Trigger resume after approval
     await _resume(token, task_id)
@@ -76,7 +76,7 @@ async def _approve_script(token: str, task_id: str):
 
 
 async def _approve_all_images(token: str, task_id: str):
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         images_r = await c.get(f"{API}/tasks/{task_id}/images", headers={"Authorization": f"Bearer {token}"})
         for img in images_r.json():
             if img["status"] != "approved":
@@ -86,7 +86,7 @@ async def _approve_all_images(token: str, task_id: str):
 
 
 async def _approve_current_video_candidates(token: str, task_id: str, kind: str):
-    async with httpx.AsyncClient() as c:
+    async with httpx.AsyncClient(trust_env=False) as c:
         response = await c.get(f"{API}/tasks/{task_id}/video-candidates", headers={"Authorization": f"Bearer {token}"})
         for candidate in response.json():
             if candidate["kind"] == kind and candidate["is_current"] and candidate["status"] != "approved":
@@ -187,7 +187,9 @@ async def test_resume_from_pending():
     tid = await _create_task(token, pid, "promo", 1)
 
     task = await _get_task(token, tid)
-    assert task["status"] == "pending"
+    # Task creation enqueues work immediately, so the worker may already have
+    # moved it from pending to scripting by the time this response is read.
+    assert task["status"] in ("pending", "scripting")
 
     await _resume(token, tid)
     task = await _poll_until(token, tid, "script_review", max_seconds=60)
