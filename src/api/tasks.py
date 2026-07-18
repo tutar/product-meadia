@@ -110,7 +110,10 @@ async def create_task(
     product_result = await db.execute(
         select(Product)
         .where(Product.id == body.product_id, Product.user_id == user.id)
-        .options(selectinload(Product.category).selectinload(Category.attributes))
+        .options(
+            selectinload(Product.category).selectinload(Category.attributes),
+            selectinload(Product.packaging_images),
+        )
     )
     product = product_result.scalar_one_or_none()
     if not product:

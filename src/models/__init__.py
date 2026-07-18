@@ -1,6 +1,7 @@
 from src.models.base import Base
 from src.models.user import User
 from src.models.product import Product
+from src.models.product_packaging_image import ProductPackagingImage
 from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
@@ -21,6 +22,7 @@ __all__ = [
     "MainImageCandidate",
     "OutboxEvent",
     "Product",
+    "ProductPackagingImage",
     "ReviewFeedback",
     "Script",
     "User",

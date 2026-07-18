@@ -30,3 +30,6 @@ class Product(Base, UUIDMixin, TimestampMixin):
     user = relationship("User")
     category = relationship("Category", back_populates="products")
     main_image_asset = relationship("MediaAsset", foreign_keys=[main_image_asset_id])
+    packaging_images = relationship(
+        "ProductPackagingImage", back_populates="product", order_by="ProductPackagingImage.sort_order"
+    )

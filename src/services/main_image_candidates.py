@@ -15,6 +15,15 @@ def build_main_image_prompt(draft):
         f'Product details: {product_details}'
     )
 
+def build_packaging_image_prompt(draft, view_prompt: str | None = None):
+    details = '. '.join(x.strip() for x in [draft.name, draft.description or '', *draft.selling_points] if x and x.strip())
+    return (
+        'Professional isolated e-commerce packaging packshot. Show the product and its real-looking retail packaging, '
+        'centered, fully visible, on a clean white or neutral studio background. No people, hands, scenery, props, '
+        'watermarks, or unrelated objects. Keep the product appearance consistent with the supplied reference image. '
+        f'Packaging view: {view_prompt or "front view"}. Product details: {details}'
+    )
+
 async def create_candidate(db,user_id,draft,media,fetch):
     url=await generate_image(build_main_image_prompt(draft))
     asset=await media.create_from_remote(

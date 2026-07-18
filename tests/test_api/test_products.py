@@ -76,6 +76,21 @@ async def test_create_asset_commits_owned_product(monkeypatch):
     result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_asset_id=asset_id),db,user)
     assert result.user_id==user.id and result.main_image_asset_id==asset_id; db.add.assert_called_once(); db.commit.assert_awaited_once()
 
+
+@pytest.mark.asyncio
+async def test_create_persists_ordered_packaging_images(monkeypatch):
+    db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={}))
+    main, first, second = uuid4(), uuid4(), uuid4()
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=main)),
+        SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=first)),
+        SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=second)),
+    ]
+    body=ProductCreate(category_id=uuid4(), category_template_version=1, name='Cup', main_image_asset_id=main, packaging_image_asset_ids=[first, second])
+    await products_api.create(body, db, user)
+    packaging = [call.args[0] for call in db.add.call_args_list if call.args[0].__class__.__name__ == 'ProductPackagingImage']
+    assert [(item.asset_id, item.sort_order) for item in packaging] == [(first, 0), (second, 1)]
+
 @pytest.mark.asyncio
 async def test_create_without_image_returns_422(monkeypatch):
     db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={}))

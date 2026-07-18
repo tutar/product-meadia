@@ -18,6 +18,17 @@ def build_product_snapshot(product, category) -> dict:
         "scenarios": list(product.scenarios or []),
         "main_image_asset_id": str(product.main_image_asset_id) if product.main_image_asset_id else None,
         "main_image_source": product.main_image_source,
+        "packaging_images": [
+            {
+                "asset_id": str(image.asset_id),
+                "sort_order": image.sort_order,
+                "source": image.source,
+                "prompt": image.prompt,
+            }
+            for image in sorted(
+                getattr(product, "packaging_images", []), key=lambda image: image.sort_order
+            )
+        ],
         "category": {"id": str(category.id), "name": category.name, "template_version": category.template_version},
         "attributes": attributes,
     }

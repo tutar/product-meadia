@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { catalogApi, type Category, type MainImageCandidate, type ProductDraft } from "../api/catalog";
+import { catalogApi, type Category, type MainImageCandidate, type PackagingImageCandidate, type ProductDraft } from "../api/catalog";
 import MediaImage from "../components/MediaImage";
 
 type CandidateState = "idle" | "generating" | "preview" | "confirmed" | "error";
@@ -19,6 +19,9 @@ export default function ProductFormPage() {
   const [scenarios, setScenarios] = useState("");
   const [attributes, setAttributes] = useState<Record<string, unknown>>({});
   const [imageAssetId, setImageAssetId] = useState("");
+  const [packagingAssetIds, setPackagingAssetIds] = useState<string[]>([]);
+  const [packagingPrompt, setPackagingPrompt] = useState("");
+  const [packagingCandidate, setPackagingCandidate] = useState<PackagingImageCandidate | null>(null);
   const [filePreview, setFilePreview] = useState("");
   const [candidate, setCandidate] = useState<MainImageCandidate | null>(null);
   const [candidateState, setCandidateState] = useState<CandidateState>("idle");
@@ -28,7 +31,7 @@ export default function ProductFormPage() {
   useEffect(() => {
     void catalogApi.listCategories().then(setCategories);
     if (id) void catalogApi.getProduct(id).then(product => {
-      setCategoryId(product.category_id); setName(product.name); setDescription(product.description ?? ""); setSellingPoints(product.selling_points.join(", ")); setScenarios(product.scenarios.join(", ")); setAttributes(product.attributes); setImageAssetId(product.main_image_asset_id ?? "");
+      setCategoryId(product.category_id); setName(product.name); setDescription(product.description ?? ""); setSellingPoints(product.selling_points.join(", ")); setScenarios(product.scenarios.join(", ")); setAttributes(product.attributes); setImageAssetId(product.main_image_asset_id ?? ""); setPackagingAssetIds((product.packaging_images ?? []).sort((a,b)=>a.sort_order-b.sort_order).map(image=>image.asset_id));
     });
   }, [id]);
 
@@ -37,9 +40,10 @@ export default function ProductFormPage() {
   const draft = (): ProductDraft => ({
     category_id: categoryId, category_template_version: category?.template_version ?? 1, name,
     description: description || null, selling_points: sellingPoints.split(",").map(x=>x.trim()).filter(Boolean), scenarios: scenarios.split(",").map(x=>x.trim()).filter(Boolean), attributes,
-    ...(candidateState === "confirmed" && candidate ? { main_image_candidate_id: candidate.candidate_id } : imageAssetId ? { main_image_asset_id: imageAssetId } : {}),
+    ...(candidateState === "confirmed" && candidate ? { main_image_candidate_id: candidate.candidate_id } : imageAssetId ? { main_image_asset_id: imageAssetId } : {}), packaging_image_asset_ids: packagingAssetIds,
   });
   const generate = async () => { if (generateRef.current) return; generateRef.current = true; setCandidateState("generating"); try { setCandidate(await catalogApi.generateMainImage(draft())); setCandidateState("preview"); } catch { setCandidateState("error"); } finally { generateRef.current = false; } };
+  const generatePackaging = async () => { if (!imageAssetId || packagingAssetIds.length >= 6) return; setPackagingCandidate(await catalogApi.generatePackagingImage({ ...draft(), main_image_asset_id: imageAssetId, prompt: packagingPrompt || undefined })); };
   const save = async () => {
     if (saveRef.current) return;
     if (!categoryId || !name || !requiredValid || (!imageAssetId && candidateState !== "confirmed")) {
@@ -69,7 +73,8 @@ export default function ProductFormPage() {
       {attribute.type === "multi_select" && <select aria-label={attribute.label} multiple required={attribute.required} value={Array.isArray(attributes[attribute.key]) ? attributes[attribute.key] as string[] : []} onChange={event => setAttribute(attribute.key, Array.from(event.target.selectedOptions, option => option.value))}>{attribute.options.map(option => <option key={option} value={option}>{option}</option>)}</select>}
       {attribute.type !== "boolean" && attribute.type !== "single_select" && attribute.type !== "multi_select" && <input aria-label={attribute.label} required={attribute.required} type={attribute.type === "number" ? "number" : "text"} value={String(attributes[attribute.key] ?? "")} onChange={event => setAttribute(attribute.key, attribute.type === "number" ? Number(event.target.value) : event.target.value)} />}
     </label>)}
-    <div className="form-section media-section"><div className="section-heading"><span className="step-number">03</span><div><h2>{t("products.image")}</h2><p className="text-secondary">{t("products.imageHelp")}</p></div></div><label>{t("products.form.file")}<input type="file" accept="image/*" onChange={event=>{const file=event.target.files?.[0];if(file){setFilePreview(URL.createObjectURL(file));setCandidateState("idle");void catalogApi.uploadMainImage(file).then(result=>setImageAssetId(result.asset_id))}}}/></label>{filePreview&&<img className="image-preview" src={filePreview} alt={t("products.form.uploadPreview")} />}{imageAssetId && <MediaImage className="image-preview" assetId={imageAssetId} alt={t("products.form.currentImage")} />}<button className="btn" onClick={() => void generate()} disabled={candidateState === "generating"}>{candidateState==="preview"||candidateState==="error"?t("products.form.regenerate"):t("products.form.generate")}</button>{candidateState==="error"&&<p role="alert" className="notice notice-error">{t("products.form.aiError")}</p>}{candidateState === "preview" && candidate && <div className="candidate-preview"><img src={candidate.preview_url} alt={t("products.form.aiPreview")} /><button className="btn" onClick={() => { setCandidateState("confirmed"); }}>{t("products.form.confirm")}</button></div>}</div>
+    <div className="form-section media-section"><div className="section-heading"><span className="step-number">03</span><div><h2>商品主图</h2><p className="text-secondary">请使用单个产品、干净白底的图片。</p></div></div><label>{t("products.form.file")}<input type="file" accept="image/*" onChange={event=>{const file=event.target.files?.[0];if(file){setFilePreview(URL.createObjectURL(file));setCandidateState("idle");void catalogApi.uploadMainImage(file).then(result=>setImageAssetId(result.asset_id))}}}/></label>{filePreview&&<img className="image-preview" src={filePreview} alt={t("products.form.uploadPreview")} />}{imageAssetId && <MediaImage className="image-preview" assetId={imageAssetId} alt={t("products.form.currentImage")} />}<button className="btn" onClick={() => void generate()} disabled={candidateState === "generating"}>{candidateState==="preview"||candidateState==="error"?t("products.form.regenerate"):t("products.form.generate")}</button>{candidateState === "preview" && candidate && <div className="candidate-preview"><img src={candidate.preview_url} alt={t("products.form.aiPreview")} /><button className="btn" onClick={() => setCandidateState("confirmed")}>{t("products.form.confirm")}</button></div>}</div>
+    <div className="form-section media-section"><h2>包装图（可选，最多 6 张）</h2><p className="text-secondary">使用白底或中性背景；可上传或以主图为参考生成。</p><input placeholder="视角/要求，例如正面或开盒" value={packagingPrompt} onChange={e=>setPackagingPrompt(e.target.value)} /><label>{t("products.form.file")}<input type="file" accept="image/*" disabled={packagingAssetIds.length >= 6} onChange={event=>{const file=event.target.files?.[0];if(file) void catalogApi.uploadMainImage(file).then(result=>setPackagingAssetIds(ids=>[...ids,result.asset_id]))}}/></label><button className="btn" disabled={!imageAssetId || packagingAssetIds.length >= 6} onClick={()=>void generatePackaging()}>生成包装图</button>{packagingCandidate && <div className="candidate-preview"><img src={packagingCandidate.preview_url} alt="包装图候选"/><button className="btn" onClick={()=>{setPackagingAssetIds(ids=>[...ids, packagingCandidate.asset_id]);setPackagingCandidate(null)}}>确认添加</button></div>}<div className="chip-row">{packagingAssetIds.map((assetId,index)=><span className="chip" key={assetId}>包装图 {index+1}<button type="button" onClick={()=>setPackagingAssetIds(ids=>ids.filter(id=>id!==assetId))}>×</button></span>)}</div></div>
     {saveError && <p role="alert" className="notice notice-error">{saveError}</p>}<div className="editor-actions"><button className="btn" onClick={() => navigate("/products")} disabled={saving}>{t("products.cancel")}</button><button className="btn btn-primary" disabled={saving} onClick={() => void save()}>{saving ? `${t("products.form.save")}…` : t("products.form.save")}</button></div>
   </div><aside className="form-aside card"><span className="eyebrow">{t("products.readyCheck")}</span><h2>{t("products.beforeSave")}</h2><p className="text-secondary">{t("products.beforeSaveHelp")}</p><div className="check-list"><span className={name ? "complete" : ""}>○ {t("products.requiredName")}</span><span className={categoryId ? "complete" : ""}>○ {t("products.requiredCategory")}</span><span className={requiredValid ? "complete" : ""}>○ {t("products.requiredAttributes")}</span><span className={imageAssetId || candidateState === "confirmed" ? "complete" : ""}>○ {t("products.requiredImage")}</span></div></aside></div></section>;
 }

@@ -5,11 +5,13 @@ export interface CategoryAttribute { id?: string; key: string; label: string; ty
 export interface Category { id: string; name: string; description: string | null; template_version: number; product_count?: number; attributes: CategoryAttribute[] }
 export interface CategoryAttributeInput { key: string; label: string; type: AttributeType; required: boolean; options: string[]; sort_order: number }
 export interface CategoryInput { name: string; description: string | null; attributes: CategoryAttributeInput[]; template_version?: number }
-export interface Product { id: string; category_id: string; category?: Category; name: string; description: string | null; selling_points: string[]; scenarios: string[]; attributes: Record<string, unknown>; main_image_asset_id: string | null; main_image_source: "upload" | "ai" | "asset"; category_template_version: number; task_count?: number }
+export interface PackagingImage { id: string; asset_id: string; source: string; prompt?: string | null; sort_order: number }
+export interface Product { id: string; category_id: string; category?: Category; name: string; description: string | null; selling_points: string[]; scenarios: string[]; attributes: Record<string, unknown>; main_image_asset_id: string | null; packaging_images: PackagingImage[]; main_image_source: "upload" | "ai" | "asset"; category_template_version: number; task_count?: number }
 export interface InitializationStatus { status: "pending" | "completed" | "failed"; sample_version: number; attempts: number; error_message?: string | null }
 export interface ProductListParams { name?: string; category_id?: string; page?: number; page_size?: number; sort?: "name" | "-name" | "created_at" | "-created_at" | "updated_at" | "-updated_at" }
-export interface ProductDraft { category_id: string; category_template_version: number; name: string; description: string | null; selling_points: string[]; scenarios: string[]; attributes: Record<string, unknown>; main_image_asset_id?: string; main_image_candidate_id?: string }
+export interface ProductDraft { category_id: string; category_template_version: number; name: string; description: string | null; selling_points: string[]; scenarios: string[]; attributes: Record<string, unknown>; main_image_asset_id?: string; main_image_candidate_id?: string; packaging_image_asset_ids?: string[] }
 export interface MainImageCandidate { candidate_id: string; preview_url: string; expires_at: string }
+export interface PackagingImageCandidate extends MainImageCandidate { asset_id: string }
 
 export const catalogApi = {
   async listCategories(): Promise<Category[]> { const { data } = await api.get<Category[] | { items: Category[] }>("/categories"); return Array.isArray(data) ? data : data.items; },
@@ -23,5 +25,6 @@ export const catalogApi = {
   async deleteProduct(id: string): Promise<void> { await api.delete(`/products/${id}`); },
   async generateMainImage(input: ProductDraft): Promise<MainImageCandidate> { return (await api.post<MainImageCandidate>("/products/main-image/generate", input)).data; },
   async uploadMainImage(file: File): Promise<{asset_id:string;url:string}> { const form=new FormData(); form.append("file",file); return (await api.post("/products/main-image/upload",form)).data; },
+  async generatePackagingImage(input: ProductDraft & { main_image_asset_id: string; prompt?: string }): Promise<PackagingImageCandidate> { return (await api.post("/products/packaging-images/generate",input)).data; },
   async getInitializationStatus(): Promise<InitializationStatus> { return (await api.get<InitializationStatus>("/initialization-status")).data; },
 };

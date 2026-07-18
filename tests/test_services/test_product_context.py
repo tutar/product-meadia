@@ -24,6 +24,26 @@ def test_snapshot_is_deterministic_and_contains_active_ordered_attributes():
     assert snapshot["name"] == "Cup" and snapshot["attributes"][0]["value"] == "red"
 
 
+def test_snapshot_preserves_ordered_packaging_image_references():
+    category = SimpleNamespace(id=uuid4(), name="Cups", template_version=1, attributes=[])
+    first, second = uuid4(), uuid4()
+    product = SimpleNamespace(
+        id=uuid4(), name="Cup", description=None, selling_points=[], scenarios=[],
+        main_image_asset_id=uuid4(), main_image_source="asset", attributes={},
+        packaging_images=[
+            SimpleNamespace(asset_id=second, sort_order=1, source="upload", prompt="side"),
+            SimpleNamespace(asset_id=first, sort_order=0, source="ai", prompt="front"),
+        ],
+    )
+
+    snapshot = build_product_snapshot(product, category)
+
+    assert snapshot["packaging_images"] == [
+        {"asset_id": str(first), "sort_order": 0, "source": "ai", "prompt": "front"},
+        {"asset_id": str(second), "sort_order": 1, "source": "upload", "prompt": "side"},
+    ]
+
+
 @pytest.mark.asyncio
 async def test_owned_task_hides_cross_tenant_task():
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)))
