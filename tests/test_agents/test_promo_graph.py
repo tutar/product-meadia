@@ -285,7 +285,10 @@ async def test_clip_feedback_replaces_only_the_rejected_clip():
         "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 2,
         "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
         "script_content": "script", "edited_script_content": "", "image_prompts": ["one", "two"], "voiceover_text": "script",
-        "generated_images": [{"image_url": "https://image-1", "status": "approved"}, {"image_url": "https://image-2", "status": "approved"}],
+        "generated_images": [
+            {"image_url": "https://image-1", "status": "approved"}, {"image_url": "https://image-2", "status": "approved"},
+            {"image_url": "https://image-3", "status": "approved"}, {"image_url": "https://image-4", "status": "approved"},
+        ],
         "video_clips": ["https://clip-1", "https://clip-2"], "tts_audio_url": "", "tts_words": [],
         "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
         "hyperframes_html": "", "final_video_path": "", "script_approved": True, "images_approved": True,
