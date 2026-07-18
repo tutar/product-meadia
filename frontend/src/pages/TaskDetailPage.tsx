@@ -89,11 +89,19 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const [loading, setLoading] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoPreviewRefs = useRef(new Map<string, HTMLVideoElement>());
   const actionRef = useRef(new Set<string>());
   const [busyActions, setBusyActions] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [feedbackDialog, setFeedbackDialog] = useState<FeedbackDialog | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [viewerZoom, setViewerZoom] = useState(1);
+  const [viewerPan, setViewerPan] = useState({ x: 0, y: 0 });
+  const viewerDragRef = useRef<{ x: number; y: number } | null>(null);
+  const [videoViewerIds, setVideoViewerIds] = useState<string[] | null>(null);
+  const [videoViewerIndex, setVideoViewerIndex] = useState<number | null>(null);
+  const videoViewerRef = useRef<HTMLVideoElement | null>(null);
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
     actionRef.current.add(key); setBusyActions([...actionRef.current]);
@@ -132,6 +140,37 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   }, [id, onTaskLoaded]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    if (viewerIndex === null) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setViewerIndex(null);
+      if (event.key === "ArrowLeft") setViewerIndex(index => index === null ? null : (index - 1 + images.length) % images.length);
+      if (event.key === "ArrowRight") setViewerIndex(index => index === null ? null : (index + 1) % images.length);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [viewerIndex, images.length]);
+
+  useEffect(() => { setViewerZoom(1); setViewerPan({ x: 0, y: 0 }); }, [viewerIndex]);
+
+  useEffect(() => {
+    if (videoViewerIndex === null || !videoViewerIds) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setVideoViewerIndex(null); setVideoViewerIds(null); }
+      if (event.key === "ArrowLeft") { event.preventDefault(); setVideoViewerIndex(index => index === null ? null : (index - 1 + videoViewerIds.length) % videoViewerIds.length); }
+      if (event.key === "ArrowRight") { event.preventDefault(); setVideoViewerIndex(index => index === null ? null : (index + 1) % videoViewerIds.length); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [videoViewerIndex, videoViewerIds]);
+
+  useEffect(() => {
+    if (videoViewerIndex === null) return;
+    for (const video of videoPreviewRefs.current.values()) video.pause();
+    const video = videoViewerRef.current;
+    if (video) { video.muted = true; video.currentTime = 0; void video.play().catch(() => undefined); }
+  }, [videoViewerIndex]);
 
   // Local HyperFrames outputs are served by the authenticated API endpoint;
   // fetch them with axios so the bearer token is included, then give the
@@ -215,6 +254,19 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     await runAction(`video:${candidateId}`, async () => { await api.put(`/tasks/${id}/video-candidates/${candidateId}`, { action }); await fetchData(); });
   };
 
+  const playVideoPreview = (candidateId: string) => {
+    for (const [id, video] of videoPreviewRefs.current) if (id !== candidateId) video.pause();
+    void videoPreviewRefs.current.get(candidateId)?.play().catch(() => undefined);
+  };
+
+  const openKeyframeViewer = (index: number) => setViewerIndex(index);
+  const moveViewer = (offset: number) => setViewerIndex(index => index === null ? null : (index + offset + images.length) % images.length);
+  const openVideoViewer = (candidates: any[], candidateId: string) => {
+    const ids = candidates.map(candidate => candidate.id);
+    setVideoViewerIds(ids);
+    setVideoViewerIndex(Math.max(0, ids.indexOf(candidateId)));
+  };
+
   const regenerateVideoCandidate = async (candidateId: string, suggestion: string) => {
     await runAction(`video:${candidateId}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidateId}/regenerate`, { feedback: suggestion }); await fetchData(); });
   };
@@ -269,8 +321,13 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     const params = entry.params || {};
     return String(t(`execution.summaries.${entry.step}`, "", params));
   };
-  const isOpenByDefault = (entries: LogEntry[]) => entries.some(entry => entry.status === "running" || entry.status === "error" || entry.status === "waiting");
   const toggle = (key: string, fallback: boolean) => setExpanded(current => ({ ...current, [key]: !(current[key] ?? fallback) }));
+  const currentClipCandidates = videoCandidates.filter(candidate => candidate.is_current && candidate.kind === "clip");
+  const reviewCandidates = videoCandidates.filter(candidate => candidate.is_current && (task.status === "composition_review" ? candidate.kind === "composition" : candidate.kind === "clip"));
+  const videoViewerCandidates = videoViewerIds
+    ? videoViewerIds.map(candidateId => videoCandidates.find(candidate => candidate.id === candidateId)).filter(Boolean)
+    : [];
+  const activeVideoViewerCandidate = videoViewerIndex === null ? null : videoViewerCandidates[videoViewerIndex];
 
   return (
     <div className="task-detail">
@@ -321,7 +378,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
           <h2 style={{ fontWeight: 600, fontSize: "0.9rem", padding: 4 }}>{t("execution.title")}</h2>
           {attempts.map(({ attempt, stages }) => {
             const attemptKey = `attempt:${attempt}`;
-            const attemptDefault = attempt === attempts.at(-1)?.attempt;
+            const attemptDefault = false;
             const attemptOpen = expanded[attemptKey] ?? attemptDefault;
             return <div key={attemptKey} style={{ marginTop: 10 }}>
               <button className="btn btn-ghost btn-sm" onClick={() => toggle(attemptKey, attemptDefault)} aria-expanded={attemptOpen}>
@@ -329,7 +386,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
               </button>
               {attemptOpen && stages.map(({ stage, entries }) => {
                 const stageKey = `${attemptKey}:${stage}`;
-                const stageDefault = isOpenByDefault(entries);
+                const stageDefault = false;
                 const stageOpen = expanded[stageKey] ?? stageDefault;
                 return <div key={stageKey} style={{ margin: "8px 0 0 14px", borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
                   <button className="btn btn-ghost btn-sm" onClick={() => toggle(stageKey, stageDefault)} aria-expanded={stageOpen}>
@@ -379,25 +436,36 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
       )}
 
-      {videoCandidates.filter(candidate => candidate.is_current).length > 0 && (
-        <div className="card mb-6">
-          <h3 className="mb-4">{task.status === "composition_review" ? t("task.finalCompositionReview") : t("task.videoClipReview")}</h3>
-          {videoCandidates.filter(candidate => candidate.is_current).map(candidate => (
-            <div key={candidate.id} className="mb-4">
-              {candidate.access_url && <video src={candidate.access_url} controls style={{ width: "100%", borderRadius: "var(--radius)" }} />}
-              <div className="flex gap-3 mt-3">
+      {task.status === "composition_review" && currentClipCandidates.length > 0 && (
+        <section className="card mb-6 media-video-review" aria-label={t("task.approvedShotSegments")}><h3 className="mb-4">{t("task.approvedShotSegments")}</h3><div className="video-review-grid">
+          {currentClipCandidates.map((candidate, index) => <article key={candidate.id} className="video-review-card">{candidate.access_url && <div className="video-preview-frame"><video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} /><button type="button" className="video-preview-play" aria-label={t("task.videoClip", { number: index + 1 })} onClick={() => playVideoPreview(candidate.id)}>▶</button><button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(currentClipCandidates, candidate.id)}>⛶</button></div>}</article>)}
+        </div></section>
+      )}
+      {reviewCandidates.length > 0 && (
+        <section className="card mb-6 media-video-review" aria-label={task.status === "composition_review" ? t("task.finalCompositionReview") : t("task.shotSegments")}>
+          <h3 className="mb-4">{task.status === "composition_review" ? t("task.finalCompositionReview") : t("task.shotSegments")}</h3>
+          <div className="video-review-grid">
+          {reviewCandidates.map((candidate, index) => (
+            <article key={candidate.id} className="video-review-card">
+              {candidate.access_url && <div className="video-preview-frame">
+                <video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} />
+                <button type="button" className="video-preview-play" aria-label={t("task.videoClip", { number: index + 1 })} onClick={() => playVideoPreview(candidate.id)}>▶</button>
+                <button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(reviewCandidates, candidate.id)}>⛶</button>
+              </div>}
+              <div className="video-review-actions">
                 {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
                   <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>{t("task.approve")}</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(String(candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button>
                 </>}
               </div>
-            </div>
+            </article>
           ))}
-        </div>
+          </div>
+        </section>
       )}
 
       {editingBlueprint && (
-        <div className="card mb-6">
+        <div className="card mb-6 media-keyframe-review">
           <h3 className="mb-4">{t("task.editingBlueprint")}</h3>
           <p className="text-secondary text-sm mb-4">{t("task.editingBlueprintDesc")}</p>
           <pre style={{ whiteSpace: "pre-wrap", color: "var(--text-secondary)", background: "var(--bg)", padding: 16, borderRadius: "var(--radius)" }}>{JSON.stringify(editingBlueprint.entries, null, 2)}</pre>
@@ -447,7 +515,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
       )}
 
       {images.length > 0 && (
-        <div className="card mb-6">
+        <div className="card mb-6 media-keyframe-review">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h3>{shotPlan ? t("task.keyframeReview") : t("task.imageReview")}</h3>
@@ -456,10 +524,10 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
             <span className="text-secondary text-sm">{images.filter((i: any) => i.status === "approved").length}/{images.length} {t("task.approved")}</span>
           </div>
           <div className="image-grid">
-            {images.map((img: any) => (
+            {images.map((img: any, imageIndex: number) => (
               <div key={img.id} className="image-card">
                 {img.access_url ? (
-                  <img src={img.access_url} alt="" />
+                  <button type="button" className="keyframe-open" aria-label={t("task.viewKeyframe", { number: imageIndex + 1 })} onClick={() => openKeyframeViewer(imageIndex)}><img src={img.access_url} alt="" /></button>
                 ) : (
                   <div style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
                     {t("task.regenerating")}
@@ -492,6 +560,36 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
             {loading ? t("task.submitting") : t("task.approveCharacter")}
           </button>
           <button className="btn btn-ghost ml-3" onClick={() => { const image = images.find(item => item.prompt === "character"); if (image) openFeedback(t("task.regenerateCharacter"), suggestion => reviewCharacter(image.id, "reject", suggestion)); }} disabled={loading}>{t("task.regenerateCharacter")}</button>
+        </div>
+      )}
+      {viewerIndex !== null && images[viewerIndex] && (
+        <div className="keyframe-viewer-backdrop" role="presentation">
+          <section className="keyframe-viewer" role="dialog" aria-modal="true" aria-label={t("task.keyframeViewer")}>
+            <header><span>{viewerIndex + 1} / {images.length}</span><div><button type="button" className="btn btn-ghost btn-sm" onClick={() => { setViewerZoom(1); setViewerPan({ x: 0, y: 0 }); }}>{t("task.fitToScreen")}</button><button type="button" className="btn btn-ghost btn-sm" onClick={() => { setViewerZoom(1); setViewerPan({ x: 0, y: 0 }); }}>{t("task.actualSize")}</button><button type="button" className="btn btn-ghost btn-sm" aria-label={t("task.closeViewer")} onClick={() => setViewerIndex(null)}>×</button></div></header>
+            <div className="keyframe-viewer-body">
+              <button type="button" className="keyframe-nav" aria-label={t("task.previousKeyframe")} onClick={() => moveViewer(-1)}>‹</button>
+              <div className="keyframe-canvas" onWheel={event => { event.preventDefault(); setViewerZoom(value => Math.min(3, Math.max(.5, value + (event.deltaY < 0 ? .15 : -.15)))); }} onPointerDown={event => { viewerDragRef.current = { x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={event => { if (!viewerDragRef.current) return; setViewerPan(value => ({ x: value.x + event.clientX - viewerDragRef.current!.x, y: value.y + event.clientY - viewerDragRef.current!.y })); viewerDragRef.current = { x: event.clientX, y: event.clientY }; }} onPointerUp={() => { viewerDragRef.current = null; }}>
+                <img src={images[viewerIndex].access_url} alt={`Keyframe ${viewerIndex + 1}`} style={{ transform: `translate(${viewerPan.x}px, ${viewerPan.y}px) scale(${viewerZoom})` }} />
+              </div>
+              <button type="button" className="keyframe-nav" aria-label={t("task.nextKeyframe")} onClick={() => moveViewer(1)}>›</button>
+              <aside className="keyframe-viewer-actions"><p>{t("task.keyframeLocation", { shot: Number(images[viewerIndex].generation_context?.shot_index || 0) + 1, segment: Number(images[viewerIndex].generation_context?.segment_index || 0) + 1, role: t(`task.keyframeRole${images[viewerIndex].generation_context?.keyframe_role === "end" ? "End" : "Start"}`) })}</p><button className="btn btn-primary" onClick={() => reviewImage(images[viewerIndex].id, "approve")}>{t("task.approve")}</button><button className="btn btn-ghost" onClick={() => openFeedback(t("task.regen"), suggestion => regenerateImage(images[viewerIndex].id, suggestion))}>{t("task.regen")}</button></aside>
+            </div>
+          </section>
+        </div>
+      )}
+      {activeVideoViewerCandidate?.access_url && videoViewerIndex !== null && (
+        <div className="keyframe-viewer-backdrop" role="presentation">
+          <section className="video-viewer" role="dialog" aria-modal="true" aria-label={t("task.videoViewer")}>
+            <header><span>{videoViewerIndex + 1} / {videoViewerCandidates.length}</span><button type="button" className="btn btn-ghost btn-sm" aria-label={t("task.closeViewer")} onClick={() => { setVideoViewerIndex(null); setVideoViewerIds(null); }}>×</button></header>
+            <div className="video-viewer-body">
+              <button type="button" className="keyframe-nav" aria-label={t("task.previousShotSegment")} onClick={() => setVideoViewerIndex(index => index === null ? null : (index - 1 + videoViewerCandidates.length) % videoViewerCandidates.length)}>‹</button>
+              <video key={activeVideoViewerCandidate.id} ref={videoViewerRef} src={activeVideoViewerCandidate.access_url} controls muted autoPlay playsInline />
+              <button type="button" className="keyframe-nav" aria-label={t("task.nextShotSegment")} onClick={() => setVideoViewerIndex(index => index === null ? null : (index + 1) % videoViewerCandidates.length)}>›</button>
+              <aside className="keyframe-viewer-actions">
+                {activeVideoViewerCandidate.status === "pending_review" && ((task.status === "video_review" && activeVideoViewerCandidate.kind === "clip") || (task.status === "composition_review" && activeVideoViewerCandidate.kind === "composition")) && <><button className="btn btn-primary" onClick={() => reviewVideoCandidate(activeVideoViewerCandidate.id, "approve")}>{t("task.approve")}</button><button className="btn btn-ghost" onClick={() => openFeedback(String(activeVideoViewerCandidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(activeVideoViewerCandidate.id, suggestion))}>{activeVideoViewerCandidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button></>}
+              </aside>
+            </div>
+          </section>
         </div>
       )}
       {feedbackDialog && (

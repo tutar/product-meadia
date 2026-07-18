@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("task detail groups script substeps in an expanded scriptwriting stage", async ({ page }) => {
+test("task detail groups script substeps in a collapsed scriptwriting stage", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
   await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
   await page.route("**/api/v1/tasks/task-1", route => route.fulfill({ json: {
@@ -24,13 +24,17 @@ test("task detail groups script substeps in an expanded scriptwriting stage", as
   await page.goto("/tasks/task-1");
 
   const log = page.getByRole("region", { name: /execution log|执行日志/i });
+  const attempt = log.getByRole("button", { name: /attempt 1|第 1 次执行/i });
+  await expect(attempt).toHaveAttribute("aria-expanded", "false");
+  await attempt.click();
   const stage = log.getByRole("button", { name: /writing script|撰写脚本/i });
-  await expect(stage).toBeVisible();
+  await expect(stage).toHaveAttribute("aria-expanded", "false");
+  await stage.click();
   await expect(log.getByText(/generate script|生成脚本/i)).toBeVisible();
   await expect(log.getByText(/script generated \(120 chars\)/i)).toBeVisible();
 });
 
-test("task detail expands the latest attempt and keeps completed history collapsed", async ({ page }) => {
+test("task detail keeps every execution attempt collapsed by default", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
   await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
   await page.route("**/api/v1/tasks/task-2", route => route.fulfill({ json: {
@@ -48,7 +52,7 @@ test("task detail expands the latest attempt and keeps completed history collaps
   const log = page.getByRole("region", { name: /execution log|执行日志/i });
   const firstAttempt = log.getByRole("button", { name: /attempt 1|第 1 次执行/i });
   await expect(firstAttempt).toHaveAttribute("aria-expanded", "false");
-  await expect(log.getByRole("button", { name: /attempt 2|第 2 次执行/i })).toHaveAttribute("aria-expanded", "true");
+  await expect(log.getByRole("button", { name: /attempt 2|第 2 次执行/i })).toHaveAttribute("aria-expanded", "false");
   await firstAttempt.click();
   await expect(log.getByRole("button", { name: /writing script|撰写脚本/i }).first()).toHaveAttribute("aria-expanded", "false");
 });
@@ -148,8 +152,10 @@ test("execution log localizes a known English summary for Chinese", async ({ pag
   await page.goto("/tasks/task-log-zh");
 
   const log = page.getByRole("region", { name: "执行日志" });
+  await log.getByRole("button", { name: "第 1 次执行" }).click();
   await log.getByRole("button", { name: "撰写脚本" }).click();
   await expect(log.getByRole("button", { name: "策划" })).toBeVisible();
+  await log.getByRole("button", { name: "策划" }).click();
   await expect(log.getByText("生成镜头计划", { exact: true })).toBeVisible();
   await expect(log.getByText("脚本已生成（120 个字符）", { exact: true })).toBeVisible();
   await expect(log.getByText("Script generated (120 chars)", { exact: true })).toHaveCount(0);
@@ -174,9 +180,109 @@ test("execution log keeps legacy image feedback in the image-generation stage", 
   await page.goto("/tasks/task-image-log");
 
   const log = page.getByRole("region", { name: "Execution Log" });
+  await log.getByRole("button", { name: "Attempt 1" }).click();
   await log.getByRole("button", { name: "Generate images" }).click();
   await expect(log.getByText("Improvement guidance recorded for regeneration", { exact: true })).toBeVisible();
   await expect(log.getByRole("button", { name: "image", exact: true })).toHaveCount(0);
+});
+
+test("video clip review presents four clips as a desktop contact sheet", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-video-grid", route => route.fulfill({ json: {
+    id: "task-video-grid", status: "video_review", type: "promo", image_count: 4, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-video-grid/images", route => route.fulfill({ json: [
+    { id: "keyframe-1", status: "approved", access_url: "https://example.test/keyframe-1.png", generation_context: {} },
+  ] }));
+  await page.route("**/api/v1/tasks/task-video-grid/video-candidates", route => route.fulfill({ json: [1, 2, 3, 4].map(index => ({
+    id: `clip-${index}`, kind: "clip", is_current: true, status: "pending_review", access_url: `https://example.test/clip-${index}.mp4`,
+  })) }));
+
+  await page.goto("/tasks/task-video-grid");
+
+  const review = page.getByRole("region", { name: "Shot segments" });
+  expect((await page.getByRole("button", { name: "View keyframe 1" }).boundingBox())!.y).toBeLessThan((await review.boundingBox())!.y);
+  const clips = review.locator("video");
+  await expect(clips).toHaveCount(4);
+  const positions = await clips.evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect();
+    return { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width) };
+  }));
+  expect(new Set(positions.map(position => position.y)).size).toBe(1);
+  expect(positions.every(position => position.width > 200)).toBe(true);
+});
+
+test("shot segment viewer is muted, navigable, and exposes review actions", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-video-viewer", route => route.fulfill({ json: {
+    id: "task-video-viewer", status: "video_review", type: "promo", image_count: 2, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-video-viewer/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-video-viewer/video-candidates", route => route.fulfill({ json: [1, 2].map(index => ({
+    id: `clip-${index}`, kind: "clip", is_current: true, status: "pending_review", access_url: `https://example.test/clip-${index}.mp4`,
+  })) }));
+
+  await page.goto("/tasks/task-video-viewer");
+  await page.getByRole("button", { name: "Open video clip 1 in viewer" }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Video viewer" });
+  const video = viewer.locator("video");
+  await expect(video).toHaveJSProperty("muted", true);
+  await expect(viewer.getByRole("button", { name: "Approve" })).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer.getByText("2 / 2", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
+});
+
+test("composition review separates approved shot segments from final composition review", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-composition-review", route => route.fulfill({ json: {
+    id: "task-composition-review", status: "composition_review", type: "promo", image_count: 2, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-composition-review/editing-blueprint", route => route.fulfill({ json: { entries: [] } }));
+  await page.route("**/api/v1/tasks/task-composition-review/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-composition-review/video-candidates", route => route.fulfill({ json: [
+    { id: "clip-1", kind: "clip", is_current: true, status: "approved", access_url: "https://example.test/clip-1.mp4" },
+    { id: "composition-1", kind: "composition", is_current: true, status: "pending_review", access_url: "https://example.test/composition-1.mp4" },
+  ] }));
+
+  await page.goto("/tasks/task-composition-review");
+  const approvedSegments = page.getByRole("region", { name: "Approved shot segments" });
+  const composition = page.getByRole("region", { name: "Final composition review" });
+  await expect(approvedSegments.getByRole("button", { name: "Approve" })).toHaveCount(0);
+  await expect(composition.getByRole("button", { name: "Approve" })).toHaveCount(1);
+  expect((await approvedSegments.boundingBox())!.y).toBeLessThan((await composition.boundingBox())!.y);
+});
+
+test("keyframe review opens a full-screen viewer with keyboard navigation", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer", route => route.fulfill({ json: {
+    id: "task-keyframe-viewer", status: "image_review", type: "promo", image_count: 2, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/creative-brief", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/script", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/shot-plan", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/images", route => route.fulfill({ json: [
+    { id: "keyframe-1", status: "pending_review", access_url: "https://example.test/keyframe-1.png", generation_context: {} },
+    { id: "keyframe-2", status: "pending_review", access_url: "https://example.test/keyframe-2.png", generation_context: {} },
+  ] }));
+  await page.route("**/api/v1/tasks/task-keyframe-viewer/video-candidates", route => route.fulfill({ json: [] }));
+
+  await page.goto("/tasks/task-keyframe-viewer");
+  await page.getByRole("button", { name: "View keyframe 1" }).click();
+
+  const viewer = page.getByRole("dialog", { name: "Keyframe viewer" });
+  await expect(viewer.getByRole("img", { name: "Keyframe 1" })).toBeVisible();
+  await page.keyboard.press("ArrowRight");
+  await expect(viewer.getByRole("img", { name: "Keyframe 2" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
 });
 
 test("regenerating one keyframe keeps other keyframes reviewable", async ({ page }) => {
