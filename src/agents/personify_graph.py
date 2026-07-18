@@ -67,7 +67,9 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
         info = state["product_info"]
         prompt = CHARACTER_PROMPT.format(product_context=format_product_context(info)) + review_guidance(state, "character")
         result = await llm_chat("scriptwriter", "You are a character designer.", prompt)
-        image_url = await generate_image(result)
+        image_url = await generate_image(
+            result, ref_image_url=state.get("main_image_data_uri") or None
+        )
         return {"character_image_url": image_url}
 
     async def wait_character_review(state: VideoAgentState) -> dict:

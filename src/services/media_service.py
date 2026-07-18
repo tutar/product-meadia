@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import posixpath
 import uuid
@@ -138,6 +139,17 @@ class MediaService:
         return await self.storage.presign_get(
             asset.bucket, asset.object_key, self.access_ttl_seconds
         )
+
+    async def data_uri(
+        self, asset_id: uuid.UUID | str, owner_user_id: uuid.UUID
+    ) -> str:
+        """Read an owned asset into a provider-safe Data URI."""
+        if isinstance(asset_id, str):
+            asset_id = uuid.UUID(asset_id)
+        asset = await self.get_owned_asset(asset_id, owner_user_id)
+        data = await self.storage.download(asset.bucket, asset.object_key)
+        encoded = base64.b64encode(data).decode("ascii")
+        return f"data:{asset.content_type};base64,{encoded}"
 
     async def mark_superseded(
         self, asset: MediaAsset, *, retention_days: int = 7

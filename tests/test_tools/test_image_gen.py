@@ -31,9 +31,10 @@ async def test_generate_image_with_ref_image():
     mock_response.data = [MagicMock(url="https://rustfs:8001/images/test2.png")]
 
     with patch("src.tools.image_gen.client.images.generate", side_effect=_make_coro(mock_response)) as mock_gen:
-        url = await generate_image("Variant of the scene", ref_image_url="https://example.com/ref.png")
+        reference = "data:image/png;base64,cHJvZHVjdA=="
+        url = await generate_image("Variant of the scene", ref_image_url=reference)
         assert url == "https://rustfs:8001/images/test2.png"
-        assert mock_gen.call_args.kwargs["extra_body"] == {"image": ["https://example.com/ref.png"]}
+        assert mock_gen.call_args.kwargs["extra_body"] == {"image": [reference]}
 
 
 @pytest.mark.asyncio

@@ -105,6 +105,30 @@ async def test_script_review_feedback_is_passed_to_the_next_generation():
 
 
 @pytest.mark.asyncio
+async def test_promo_images_use_product_main_image_as_data_uri_reference():
+    graph = build_promo_graph(interrupt_before=["wait_image_review"])
+    reference_image = "data:image/png;base64,cHJvZHVjdA=="
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "main_image_data_uri": reference_image,
+        "script_content": "script", "edited_script_content": "", "image_prompts": ["product scene"],
+        "voiceover_text": "script", "generated_images": [], "video_clips": [], "tts_audio_url": "", "tts_words": [],
+        "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
+        "hyperframes_html": "", "final_video_path": "", "review_approved": False,
+        "script_approved": True, "images_approved": False, "character_approved": False,
+        "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
+    }
+
+    with patch("src.agents.promo_graph.generate_image", new_callable=AsyncMock) as generate:
+        generate.return_value = "https://generated/image.png"
+        async for _ in graph.astream(state, {"configurable": {"thread_id": "product-reference"}}):
+            pass
+
+    assert generate.await_args.kwargs["ref_image_url"] == reference_image
+
+
+@pytest.mark.asyncio
 async def test_reused_script_does_not_report_a_new_script_generation():
     from src.tasks.execution import reset_execution_reporter, set_execution_reporter
 

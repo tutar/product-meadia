@@ -17,6 +17,7 @@ class VideoAgentState(TypedDict):
     task_id: str
     product_id: str
     product_info: ProductContext
+    main_image_data_uri: str
     task_type: str
     image_count: int
 

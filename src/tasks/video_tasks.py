@@ -111,11 +111,15 @@ async def _async_run(task_id: str, celery_task_id: str):
             snapshot = task.product_snapshot
             if snapshot.get("version") != 1:
                 raise ValueError("Invalid product snapshot")
+            main_image_data_uri = ""
+            if main_image_asset_id := snapshot.get("main_image_asset_id"):
+                main_image_data_uri = await media.data_uri(main_image_asset_id, task.user_id)
 
             initial_state: VideoAgentState = {
                 "task_id": str(task.id),
                 "product_id": str(task.product_id or snapshot["id"]),
                 "product_info": snapshot,
+                "main_image_data_uri": main_image_data_uri,
                 "task_type": task.type,
                 "image_count": task.image_count,
                 "viral_url": "",

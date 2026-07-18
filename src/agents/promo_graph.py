@@ -108,7 +108,10 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             if old and old.get("image_url") and old.get("status") in ("approved", "pending_review"):
                 images.append(old)
             else:
-                url = await generate_image(p + review_guidance(state, "image", old.get("id") if old else None))
+                url = await generate_image(
+                    p + review_guidance(state, "image", old.get("id") if old else None),
+                    ref_image_url=state.get("main_image_data_uri") or None,
+                )
                 images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
         return {"generated_images": images}
 

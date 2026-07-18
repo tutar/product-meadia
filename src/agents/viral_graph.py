@@ -89,7 +89,10 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             return {"generated_images": state["generated_images"]}
         images = []
         for i, p in enumerate(state.get("image_prompts", [])):
-            url = await generate_image(p + review_guidance(state, "image"))
+            url = await generate_image(
+                p + review_guidance(state, "image"),
+                ref_image_url=state.get("main_image_data_uri") or None,
+            )
             images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
         return {"generated_images": images}
 
