@@ -18,6 +18,8 @@ test("task detail groups script substeps in an expanded scriptwriting stage", as
     image_prompts: [], voiceover_text: "A script", status: "pending_review",
   } }));
   await page.route("**/api/v1/tasks/task-1/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-1/creative-brief", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-1/video-candidates", route => route.fulfill({ json: [] }));
 
   await page.goto("/tasks/task-1");
 
@@ -39,6 +41,7 @@ test("task detail expands the latest attempt and keeps completed history collaps
     ],
   } }));
   await page.route("**/api/v1/tasks/task-2/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-2/video-candidates", route => route.fulfill({ json: [] }));
 
   await page.goto("/tasks/task-2");
 
@@ -48,4 +51,30 @@ test("task detail expands the latest attempt and keeps completed history collaps
   await expect(log.getByRole("button", { name: /attempt 2|第 2 次执行/i })).toHaveAttribute("aria-expanded", "true");
   await firstAttempt.click();
   await expect(log.getByRole("button", { name: /writing script|撰写脚本/i }).first()).toHaveAttribute("aria-expanded", "false");
+});
+
+test("promo workspace reviews an ordered Shot Plan before generating keyframes", async ({ page }) => {
+  let planApproved = false;
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-plan", route => route.fulfill({ json: {
+    id: "task-plan", status: planApproved ? "imaging" : "shot_plan_review", type: "promo", image_count: 2,
+    product_snapshot: { name: "Cedar candle" }, progress_log: [], created_at: "2026-07-18T10:00:00Z",
+  } }));
+  await page.route("**/api/v1/tasks/task-plan/script", route => route.fulfill({ json: {
+    id: "script-1", task_id: "task-plan", content: "A script", edited_content: null, image_prompts: [], voiceover_text: "A script", status: "approved",
+  } }));
+  await page.route("**/api/v1/tasks/task-plan/creative-brief", route => route.fulfill({ json: { id: "brief-1", task_id: "task-plan", content: {}, status: "approved" } }));
+  await page.route("**/api/v1/tasks/task-plan/shot-plan", route => {
+    if (route.request().method() === "PUT") { planApproved = true; return route.fulfill({ json: { id: "plan-1", task_id: "task-plan", shots: [], status: "approved" } }); }
+    return route.fulfill({ json: { id: "plan-1", task_id: "task-plan", status: planApproved ? "approved" : "pending_review", shots: [{ narrative_purpose: "Hook", target_duration_seconds: 5, image_prompt: "Candle", video_motion_prompt: "Orbit" }] } });
+  });
+  await page.route("**/api/v1/tasks/task-plan/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-plan/video-candidates", route => route.fulfill({ json: [] }));
+
+  await page.goto("/tasks/task-plan");
+  await expect(page.getByRole("heading", { name: "Shot Plan" })).toBeVisible();
+  await expect(page.getByLabel("Shot Plan JSON")).toContainText("Hook");
+  await page.getByRole("button", { name: "Approve and generate keyframes" }).click();
+  await expect(page.getByRole("heading", { name: "Shot Plan" })).toHaveCount(0);
 });

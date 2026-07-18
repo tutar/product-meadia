@@ -2,6 +2,12 @@
 
 This context covers media assets produced or consumed while creating product videos.
 
+## Agent workflow
+
+- Manage GitHub Issues with `gh`; follow `docs/agents/issue-tracker.md`.
+- Use the five canonical triage labels in `docs/agents/triage-labels.md`.
+- Keep domain decisions in this context and `docs/adr/`, following `docs/agents/domain.md`.
+
 ## Language
 
 **Persistent Media**:

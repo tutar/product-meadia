@@ -264,7 +264,10 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                 "start_seconds": start,
                 "duration_seconds": duration,
                 "source_target_duration_seconds": planned_durations[i],
-                "transition": "cut" if i == 0 else "dissolve",
+                # HyperFrames receives discrete media clips here; without a
+                # locally bundled seek-safe animation timeline, an explicit
+                # cut is the only transition the renderer can execute.
+                "transition": "cut",
                 "voiceover_alignment": segments[i].get("voiceover_text", "") if i < len(segments) else "",
                 "audio_marker_seconds": start,
                 "subtitle_mode": "word_timed",
