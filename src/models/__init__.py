@@ -1,6 +1,8 @@
 from src.models.base import Base
 from src.models.user import User
 from src.models.product import Product
+from src.models.creative_brief import CreativeBrief
+from src.models.shot_plan import ShotPlan
 from src.models.product_packaging_image import ProductPackagingImage
 from src.models.task import VideoTask
 from src.models.script import Script
@@ -17,6 +19,7 @@ __all__ = [
     "Base",
     "CatalogInitialization",
     "Category",
+    "CreativeBrief",
     "CategoryAttribute",
     "GeneratedImage",
     "MainImageCandidate",
@@ -25,6 +28,7 @@ __all__ = [
     "ProductPackagingImage",
     "ReviewFeedback",
     "Script",
+    "ShotPlan",
     "User",
     "VideoCandidate",
     "VideoTask",

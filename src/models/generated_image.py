@@ -1,5 +1,5 @@
 from sqlalchemy import String, Integer, Text, Column, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from src.models.base import Base, UUIDMixin, TimestampMixin
 
@@ -11,6 +11,7 @@ class GeneratedImage(Base, UUIDMixin, TimestampMixin):
     asset_id = Column(UUID(as_uuid=True), ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
     status = Column(String(20), nullable=False, default="pending_review")
+    generation_context = Column(JSONB, nullable=False, default=dict)
 
     task = relationship("VideoTask", back_populates="images")
     asset = relationship("MediaAsset")

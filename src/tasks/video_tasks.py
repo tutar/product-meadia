@@ -9,6 +9,8 @@ from src.services.media_service import MediaService
 from src.tasks.celery_app import celery_app
 from src.models.task import VideoTask
 from src.models.script import Script
+from src.models.creative_brief import CreativeBrief
+from src.models.shot_plan import ShotPlan
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
 from src.models.review_feedback import ReviewFeedback
@@ -70,7 +72,7 @@ async def _make_runnable_graph(task_type: str, skip_interrupts: set[str] | None 
 
     if task_type == "promo":
         from src.agents.promo_graph import build_promo_graph
-        interrupts = ["wait_script_review", "wait_image_review"]
+        interrupts = ["wait_creative_brief_review", "wait_script_review", "wait_shot_plan_review", "wait_image_review"]
         return build_promo_graph(checkpointer=checkpointer, interrupt_before=[i for i in interrupts if i not in skip])
     elif task_type == "viral":
         from src.agents.viral_graph import build_viral_graph
@@ -122,6 +124,9 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "main_image_data_uri": main_image_data_uri,
                 "task_type": task.type,
                 "image_count": task.image_count,
+                "creative_brief": {}, "creative_brief_approved": False,
+                "shot_plan": [], "shot_plan_approved": False,
+                "clip_segments": [], "editing_blueprint": [],
                 "viral_url": "",
                 "script_content": "", "edited_script_content": "", "image_prompts": [],
                 "voiceover_text": "", "generated_images": [], "video_clips": [], "video_clips_reused": False,
@@ -140,6 +145,14 @@ async def _async_run(task_id: str, celery_task_id: str):
                     initial_state["viral_url"] = va.source_url
 
             # Restore previously-completed state on retry
+            db_brief = await db.scalar(select(CreativeBrief).where(CreativeBrief.task_id == task.id))
+            if db_brief:
+                initial_state["creative_brief"] = db_brief.content or {}
+                initial_state["creative_brief_approved"] = db_brief.status == "approved"
+            db_shot_plan = await db.scalar(select(ShotPlan).where(ShotPlan.task_id == task.id))
+            if db_shot_plan:
+                initial_state["shot_plan"] = db_shot_plan.shots or []
+                initial_state["shot_plan_approved"] = db_shot_plan.status == "approved"
             script_result = await db.execute(select(Script).where(Script.task_id == task_id))
             db_script = script_result.scalar_one_or_none()
             if db_script:
@@ -228,14 +241,18 @@ async def _async_run(task_id: str, celery_task_id: str):
             if task.status == "failed":
                 if db_images and any(img.status == "approved" for img in db_images):
                     task.status = "image_review"  # Re-review or generate remaining
-                elif db_script and db_script.status == "approved":
+                elif db_shot_plan and db_shot_plan.status == "approved":
                     task.status = "imaging"
+                elif db_script and db_script.status == "approved":
+                    task.status = "planning"
                 elif db_script:
                     task.status = "script_review"
-                else:
+                elif db_brief and db_brief.status == "approved":
                     task.status = "scripting"
+                else:
+                    task.status = "planning"
             elif task.status == "pending":
-                task.status = "scripting"
+                task.status = "planning"
 
             task.error_message = None
             task.current_step = None
@@ -246,6 +263,10 @@ async def _async_run(task_id: str, celery_task_id: str):
         skip = set()
         if initial_state.get("script_approved"):
             skip.add("wait_script_review")
+        if initial_state.get("creative_brief_approved"):
+            skip.add("wait_creative_brief_review")
+        if initial_state.get("shot_plan_approved"):
+            skip.add("wait_shot_plan_review")
         if initial_state.get("images_approved"):
             skip.add("wait_image_review")
         if initial_state.get("character_approved"):
@@ -310,7 +331,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                                 script = await db.scalar(select(Script).where(Script.task_id == task_id))
                                 if script:
                                     script.status = "approved"
-                                t.status = "imaging"
+                                t.status = "planning"
                             else:
                                 images = (await db.scalars(select(GeneratedImage).where(GeneratedImage.task_id == task_id))).all()
                                 for image in images:
@@ -475,8 +496,10 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
     """Persist agent node outputs to their corresponding DB tables."""
     async with SessionLocal() as db:
         feedback_targets = {
+            "generate_creative_brief": "creative_brief",
             "generate_script": "script",
             "generate_rewritten_script": "script",
+            "generate_shot_plan": "shot_plan",
             "generate_images": "image",
             "generate_character": "character",
             "generate_video_clips": "video_clip",
@@ -493,7 +516,23 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
             ))).all()
             for item in items:
                 item.consumed = True
-        if node_name == "generate_script" or node_name == "generate_rewritten_script":
+        if node_name == "generate_creative_brief":
+            brief = await db.scalar(select(CreativeBrief).where(CreativeBrief.task_id == task_id))
+            if not brief:
+                brief = CreativeBrief(task_id=task_id, content={}, status="pending_review")
+                db.add(brief)
+            brief.content = output.get("creative_brief", brief.content)
+            await db.commit()
+
+        elif node_name == "generate_shot_plan":
+            plan = await db.scalar(select(ShotPlan).where(ShotPlan.task_id == task_id))
+            if not plan:
+                plan = ShotPlan(task_id=task_id, shots=[], status="pending_review")
+                db.add(plan)
+            plan.shots = output.get("shot_plan", plan.shots)
+            await db.commit()
+
+        elif node_name == "generate_script" or node_name == "generate_rewritten_script":
             stmt = select(Script).where(Script.task_id == task_id)
             result = await db.execute(stmt)
             script = result.scalar_one_or_none()
@@ -531,13 +570,22 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 if old:
                     old.asset_id = asset_id or old.asset_id
                     old.status = img_data.get("status", old.status)
+                    old.prompt = img_data.get("image_prompt", old.prompt)
+                    old.generation_context = {
+                        key: img_data[key] for key in ("shot_index", "segment_index", "segment_count", "target_duration_seconds", "voiceover_text")
+                        if key in img_data
+                    }
                 else:
                     db.add(GeneratedImage(
-                        task_id=task_id, prompt="",
+                        task_id=task_id, prompt=img_data.get("image_prompt", ""),
                         image_url=None,
                         asset_id=asset_id,
                         sort_order=sort_order,
                         status=img_data.get("status", "pending_review"),
+                        generation_context={
+                            key: img_data[key] for key in ("shot_index", "segment_index", "segment_count", "target_duration_seconds", "voiceover_text")
+                            if key in img_data
+                        },
                     ))
             await db.commit()
 
@@ -589,7 +637,11 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                     previous = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "clip", VideoCandidate.sort_order == index, VideoCandidate.is_current.is_(True)))).all()
                     for candidate in previous:
                         candidate.is_current = False
-                    db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="clip", sort_order=index, version=len(previous_all) + 1, status="pending_review"))
+                    db.add(VideoCandidate(
+                        task_id=t.id, asset_id=asset.id, kind="clip", sort_order=index, version=len(previous_all) + 1,
+                        status="pending_review",
+                        generation_context=(output.get("clip_segments") or [{}] * len(output["video_clips"]))[index],
+                    ))
                 current_candidates = (await db.scalars(select(VideoCandidate).where(
                     VideoCandidate.task_id == task_id,
                     VideoCandidate.kind == "clip",

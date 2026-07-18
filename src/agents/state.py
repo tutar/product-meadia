@@ -20,6 +20,12 @@ class VideoAgentState(TypedDict):
     main_image_data_uri: str
     task_type: str
     image_count: int
+    creative_brief: dict
+    creative_brief_approved: bool
+    shot_plan: list[dict]
+    shot_plan_approved: bool
+    clip_segments: list[dict]
+    editing_blueprint: list[dict]
 
     script_content: str
     edited_script_content: str

@@ -90,6 +90,7 @@ def test_video_task_runner_does_not_shadow_its_datetime_alias():
 
 
 def test_workflow_nodes_have_user_visible_execution_stages():
+    assert execution_stage("generate_shot_plan") == "planning"
     assert execution_stage("generate_script") == "scripting"
     assert execution_stage("generate_tts_and_lipsync") == "video_gen"
     assert execution_stage("generate_character") == "character"
@@ -108,7 +109,9 @@ def test_retry_creates_a_new_execution_attempt_but_review_resume_does_not():
 
 
 def test_review_waits_are_mapped_to_the_relevant_user_review():
+    assert review_status_for_node("generate_creative_brief") == "creative_brief_review"
     assert review_status_for_node("generate_script") == "script_review"
+    assert review_status_for_node("generate_shot_plan") == "shot_plan_review"
     assert review_status_for_node("generate_images") == "image_review"
     assert review_status_for_node("generate_character") == "character_review"
 

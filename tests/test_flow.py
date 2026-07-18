@@ -75,6 +75,18 @@ async def _approve_script(token: str, task_id: str):
     return r
 
 
+async def _approve_creative_brief(token: str, task_id: str):
+    async with httpx.AsyncClient(trust_env=False) as c:
+        r = await c.put(f"{API}/tasks/{task_id}/creative-brief", headers={"Authorization": f"Bearer {token}"}, json={"approved": True})
+    return r
+
+
+async def _approve_shot_plan(token: str, task_id: str):
+    async with httpx.AsyncClient(trust_env=False) as c:
+        r = await c.put(f"{API}/tasks/{task_id}/shot-plan", headers={"Authorization": f"Bearer {token}"}, json={"approved": True})
+    return r
+
+
 async def _approve_all_images(token: str, task_id: str):
     async with httpx.AsyncClient(trust_env=False) as c:
         images_r = await c.get(f"{API}/tasks/{task_id}/images", headers={"Authorization": f"Bearer {token}"})
@@ -113,7 +125,7 @@ async def _poll_until(token: str, task_id: str, target_status: str, max_seconds:
 
 @pytest.mark.asyncio
 async def test_full_promo_flow():
-    """Full promo flow: create → resume → script review → approve → images → done"""
+    """Full promo flow: brief → script → shots → keyframes → clips → composition."""
     email = f"flow-test-{asyncio.get_event_loop().time()}@test.com"
     token = await _register_and_login(email, "test123456")
 
@@ -122,15 +134,19 @@ async def test_full_promo_flow():
 
     # Initial state
     task = await _get_task(token, tid)
-    assert task["status"] in ("pending", "scripting")
+    assert task["status"] in ("pending", "planning", "scripting")
 
-    # Resume and wait for script review
+    # Resume and approve the creative brief before script generation.
     await _resume(token, tid)
+    task = await _poll_until(token, tid, "creative_brief_review", max_seconds=60)
+    assert (await _approve_creative_brief(token, tid)).status_code == 200
     task = await _poll_until(token, tid, "script_review", max_seconds=60)
     assert task["status"] == "script_review", f"Expected script_review, got {task['status']}"
 
-    # Approve script and wait for images
+    # An approved script creates an independently reviewable shot plan.
     await _approve_script(token, tid)
+    task = await _poll_until(token, tid, "shot_plan_review", max_seconds=60)
+    assert (await _approve_shot_plan(token, tid)).status_code == 200
     task = await _poll_until(token, tid, "image_review", max_seconds=300)
     assert task["status"] == "image_review", f"Expected image_review, got {task['status']}"
 
@@ -152,13 +168,17 @@ async def test_retry_from_failed_preserves_progress():
     pid = await _create_product(token, "Retry Test Perfume")
     tid = await _create_task(token, pid, "promo", 1)
 
-    # Get to script_review
+    # Get through the planning review points.
     await _resume(token, tid)
+    await _poll_until(token, tid, "creative_brief_review", max_seconds=60)
+    await _approve_creative_brief(token, tid)
     task = await _poll_until(token, tid, "script_review", max_seconds=60)
     assert task["status"] == "script_review"
 
     # Approve script
     await _approve_script(token, tid)
+    await _poll_until(token, tid, "shot_plan_review", max_seconds=60)
+    await _approve_shot_plan(token, tid)
     task = await _poll_until(token, tid, "image_review", max_seconds=120)
     assert task["status"] == "image_review"
 
@@ -180,7 +200,7 @@ async def test_retry_from_failed_preserves_progress():
 
 @pytest.mark.asyncio
 async def test_resume_from_pending():
-    """Resume from pending transitions to scripting, then script_review."""
+    """Resume from pending transitions to planning, then creative-brief review."""
     email = f"flow-pend-{asyncio.get_event_loop().time()}@test.com"
     token = await _register_and_login(email, "test123456")
     pid = await _create_product(token, "Pending Test")
@@ -189,8 +209,8 @@ async def test_resume_from_pending():
     task = await _get_task(token, tid)
     # Task creation enqueues work immediately, so the worker may already have
     # moved it from pending to scripting by the time this response is read.
-    assert task["status"] in ("pending", "scripting")
+    assert task["status"] in ("pending", "planning", "scripting")
 
     await _resume(token, tid)
-    task = await _poll_until(token, tid, "script_review", max_seconds=60)
-    assert task["status"] in ("script_review", "scripting"), f"Expected progressing, got {task['status']}"
+    task = await _poll_until(token, tid, "creative_brief_review", max_seconds=60)
+    assert task["status"] in ("creative_brief_review", "planning"), f"Expected progressing, got {task['status']}"

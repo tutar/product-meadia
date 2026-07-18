@@ -59,13 +59,21 @@ async def ensure_schema() -> None:
         ))
         await connection.execute(text(
             "ALTER TABLE video_tasks ADD CONSTRAINT video_tasks_status_check "
-            "CHECK (status IN ('pending', 'scripting', 'script_review', 'imaging', "
+            "CHECK (status IN ('pending', 'planning', 'creative_brief_review', 'shot_plan_review', 'scripting', 'script_review', 'imaging', "
             "'image_review', 'character_review', 'video_gen', 'video_review', "
             "'compositing', 'composition_review', 'cancellation_requested', 'cancelled', 'done', 'failed'))"
         ))
         await connection.execute(text(
             "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS "
             "asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS "
+            "generation_context JSONB NOT NULL DEFAULT '{}'::jsonb"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE video_candidates ADD COLUMN IF NOT EXISTS "
+            "generation_context JSONB NOT NULL DEFAULT '{}'::jsonb"
         ))
         await connection.execute(text(
             "ALTER TABLE main_image_candidates ADD COLUMN IF NOT EXISTS "

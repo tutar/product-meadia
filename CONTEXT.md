@@ -40,6 +40,34 @@ _Avoid_: Missing URL, broken file
 One user-owned request to generate a product video. It preserves the product snapshot, generated outputs, and its execution history independently of later product changes.
 _Avoid_: Job, render request
 
+**Creative Brief**:
+The user-reviewable creative plan for a Video Task, defining its audience, core promise, visual and emotional direction, duration, and narrative pacing before a script or visual assets are generated.
+_Avoid_: Hidden prompt, script, storyboard
+
+**Shot Plan**:
+The ordered, user-reviewable visual realization of an approved Creative Brief and Script. It supplies the editing blueprint before any image or video generation.
+_Avoid_: Script, list of generated images, final timeline
+
+**Shot**:
+One ordered unit in a Shot Plan with a narrative purpose, product presentation, camera or motion direction, duration, aligned voiceover segment, image prompt, and video-motion prompt.
+_Avoid_: Generated video clip, arbitrary scene
+
+**Clip Segment**:
+One model-constrained, renderable portion of a Shot. A Shot may contain multiple consecutive Clip Segments when its intended duration exceeds a selected video model's maximum duration.
+_Avoid_: Shot, final composition
+
+**Keyframe**:
+The approved still-image visual anchor for one Clip Segment, used as its image-to-video input. A model may use one Keyframe or a start/end sequence.
+_Avoid_: Product main image, packaging image, Shot
+
+**Editing Blueprint**:
+The approved, deterministic assembly instructions derived from a Shot Plan, including shot order, target durations, voiceover alignment, transitions, subtitles, and audio markers.
+_Avoid_: Free-form post-generation editing, fixed-duration clip loop
+
+**Runtime Guidance**:
+An optional intended final-runtime budget for a Video Task. It guides Creative Brief and Shot Plan pacing but never truncates a final composition; without it, runtime follows the approved script and voiceover naturally.
+_Avoid_: Hard duration limit, per-clip duration
+
 **Execution Attempt**:
 One contiguous run of a Video Task, including a retry. Attempts are retained in order so a later successful retry does not obscure an earlier failure.
 _Avoid_: Retry log, task run

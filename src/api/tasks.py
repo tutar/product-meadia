@@ -12,13 +12,16 @@ from src.models.product import Product
 from src.models.category import Category
 from src.models.task import VideoTask
 from src.models.script import Script
+from src.models.creative_brief import CreativeBrief
+from src.models.shot_plan import ShotPlan
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
 from src.models.review_feedback import ReviewFeedback
 from src.models.viral_analysis import ViralAnalysis
 from src.models.media_asset import MediaAsset
 from src.schemas.task import (
-    TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate,
+    TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate, CreativeBriefResponse, CreativeBriefUpdate,
+    ShotPlanResponse, ShotPlanUpdate,
     ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
 )
 from src.auth.deps import get_current_user
@@ -29,7 +32,7 @@ from src.api.media import get_media_service
 from src.services.media_service import MediaService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-ACTIVE_TASK_STATUSES = ("pending", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review", "cancellation_requested")
+ACTIVE_TASK_STATUSES = ("pending", "planning", "creative_brief_review", "shot_plan_review", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review", "cancellation_requested")
 TERMINAL_TASK_STATUSES = {"done", "failed", "cancelled"}
 
 
@@ -151,7 +154,7 @@ async def create_task(
     from src.tasks.video_tasks import run_video_task
     celery_result = run_video_task.delay(str(task.id))
     task.celery_task_id = celery_result.id
-    task.status = "scripting"
+    task.status = "planning"
     await db.commit()
     await db.refresh(task)
 
@@ -180,8 +183,8 @@ async def list_tasks(
         query = query.where(VideoTask.status == status)
 
     queue_priority = case(
-        (VideoTask.status.in_(("script_review", "image_review", "character_review", "video_review", "composition_review")), 0),
-        (VideoTask.status.in_(("pending", "scripting", "imaging", "video_gen", "compositing")), 1),
+        (VideoTask.status.in_(("creative_brief_review", "script_review", "shot_plan_review", "image_review", "character_review", "video_review", "composition_review")), 0),
+        (VideoTask.status.in_(("pending", "planning", "scripting", "imaging", "video_gen", "compositing")), 1),
         else_=2,
     )
     offset = (page - 1) * page_size
@@ -218,6 +221,78 @@ async def get_script(
     return script
 
 
+@router.get("/{task_id}/creative-brief", response_model=CreativeBriefResponse)
+async def get_creative_brief(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    await owned_task(db, user, task_id)
+    brief = await db.scalar(select(CreativeBrief).where(CreativeBrief.task_id == task_id))
+    if not brief:
+        raise HTTPException(status_code=404, detail="Creative Brief not found")
+    return brief
+
+
+@router.put("/{task_id}/creative-brief", response_model=CreativeBriefResponse)
+async def update_creative_brief(
+    task_id: UUID,
+    body: CreativeBriefUpdate,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    task = await owned_task(db, user, task_id)
+    brief = await db.scalar(select(CreativeBrief).where(CreativeBrief.task_id == task_id))
+    if not brief:
+        raise HTTPException(status_code=404, detail="Creative Brief not found")
+    if body.content is not None:
+        brief.content = body.content
+    if body.approved:
+        brief.status = "approved"
+        task.status = "scripting"
+    else:
+        record_feedback(db, task, "creative_brief", brief.id, validated_feedback(body.feedback))
+        brief.content = {}
+        brief.status = "rejected"
+        task.status = "planning"
+    await db.commit()
+    from src.tasks.video_tasks import run_video_task
+    run_video_task.delay(str(task_id))
+    return brief
+
+
+@router.get("/{task_id}/shot-plan", response_model=ShotPlanResponse)
+async def get_shot_plan(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    await owned_task(db, user, task_id)
+    plan = await db.scalar(select(ShotPlan).where(ShotPlan.task_id == task_id))
+    if not plan:
+        raise HTTPException(status_code=404, detail="Shot Plan not found")
+    return plan
+
+
+@router.put("/{task_id}/shot-plan", response_model=ShotPlanResponse)
+async def update_shot_plan(
+    task_id: UUID,
+    body: ShotPlanUpdate,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    task = await owned_task(db, user, task_id)
+    plan = await db.scalar(select(ShotPlan).where(ShotPlan.task_id == task_id))
+    if not plan:
+        raise HTTPException(status_code=404, detail="Shot Plan not found")
+    if body.shots is not None:
+        plan.shots = body.shots
+    if body.approved:
+        plan.status = "approved"
+        task.status = "imaging"
+    else:
+        record_feedback(db, task, "shot_plan", plan.id, validated_feedback(body.feedback))
+        plan.shots = []
+        plan.status = "rejected"
+        task.status = "planning"
+    await db.commit()
+    from src.tasks.video_tasks import run_video_task
+    run_video_task.delay(str(task_id))
+    return plan
+
+
 @router.put("/{task_id}/script", response_model=ScriptResponse)
 async def update_script(
     task_id: UUID,
@@ -238,7 +313,7 @@ async def update_script(
     task = task_result.scalar_one()
     if body.approved:
         script.status = "approved"
-        task.status = "imaging"
+        task.status = "planning"
         await db.commit()
         await db.refresh(script)
         # Resume the graph

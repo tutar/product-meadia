@@ -18,6 +18,10 @@ SCRIPT_SYSTEM = """You are a product video scriptwriter. Given a product context
 
 Return ONLY JSON: {{"script": "...", "voiceover": "...", "image_prompts": ["prompt1", ...]}}"""
 
+CREATIVE_BRIEF_SYSTEM = """Create a concise product-video Creative Brief as JSON with audience, core_promise, visual_direction, emotional_direction, pacing, and runtime_guidance. Runtime guidance may be null."""
+SHOT_PLAN_SYSTEM = """Return JSON with shots: an ordered list. Each shot has narrative_purpose, product_presentation, camera_motion, target_duration_seconds, voiceover_text, image_prompt, and video_motion_prompt."""
+MAX_VIDEO_SEGMENT_SECONDS = 5
+
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html><head><style>
   body {{ margin:0; background:#000; font-family:sans-serif; }}
@@ -68,17 +72,51 @@ def composition_feedback_key(state: VideoAgentState) -> str:
     return "feedback:" + ":".join(feedback_ids) if feedback_ids else "initial"
 
 
+def clip_segments_for_shot_plan(shot_plan: list[dict]) -> list[dict]:
+    """Split approved shots into model-sized, sequential clip segments."""
+    segments: list[dict] = []
+    for shot_index, shot in enumerate(shot_plan):
+        target = max(1.0, float(shot.get("target_duration_seconds") or MAX_VIDEO_SEGMENT_SECONDS))
+        segment_count = max(1, math.ceil(target / MAX_VIDEO_SEGMENT_SECONDS))
+        for segment_index in range(segment_count):
+            segments.append({
+                "shot_index": shot_index,
+                "segment_index": segment_index,
+                "segment_count": segment_count,
+                "target_duration_seconds": min(MAX_VIDEO_SEGMENT_SECONDS, target - segment_index * MAX_VIDEO_SEGMENT_SECONDS),
+                "image_prompt": shot.get("image_prompt", ""),
+                "video_motion_prompt": shot.get("video_motion_prompt", ""),
+                "voiceover_text": shot.get("voiceover_text", ""),
+            })
+    return segments
+
+
 def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     if interrupt_before is None:
-        interrupt_before = ["wait_script_review", "wait_image_review"]
+        interrupt_before = ["wait_creative_brief_review", "wait_script_review", "wait_shot_plan_review", "wait_image_review"]
     graph = StateGraph(VideoAgentState)
+
+    async def generate_creative_brief(state: VideoAgentState) -> dict:
+        if "creative_brief" not in state:
+            return {}
+        if state.get("creative_brief"):
+            return {}
+        result = await llm_chat("scriptwriter", CREATIVE_BRIEF_SYSTEM, format_product_context(state["product_info"]) + review_guidance(state, "creative_brief"), temperature=0.4)
+        return {"creative_brief": json.loads(result)}
+
+    async def wait_creative_brief_review(state: VideoAgentState) -> dict:
+        if "creative_brief" not in state:
+            return {}
+        if state.get("creative_brief_approved"):
+            return {}
+        return {"__status": "creative_brief_review"}
 
     async def generate_script(state: VideoAgentState) -> dict:
         # Skip if script already loaded from DB on retry
         if state.get("script_content") and state.get("image_prompts"):
             return {}
         info = state["product_info"]
-        prompt = format_product_context(info) + review_guidance(state, "script")
+        prompt = format_product_context(info) + "\nCreative Brief: " + json.dumps(state.get("creative_brief", {})) + review_guidance(state, "script")
         system = SCRIPT_SYSTEM.format(image_count=state["image_count"])
         result = await llm_chat("scriptwriter", system, prompt, temperature=0.7)
         data = json.loads(result)
@@ -93,13 +131,32 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             return {}
         return {"__status": "script_review"}
 
+    async def generate_shot_plan(state: VideoAgentState) -> dict:
+        # Keep legacy graph callers (viral/personify tests and old checkpoints)
+        # on their existing path; promo worker state always supplies this key.
+        if "shot_plan" not in state:
+            return {}
+        if state.get("shot_plan"):
+            return {}
+        result = await llm_chat("scriptwriter", SHOT_PLAN_SYSTEM, json.dumps({"script": state["script_content"], "voiceover": state["voiceover_text"], "creative_brief": state.get("creative_brief", {})}) + review_guidance(state, "shot_plan"), temperature=0.4)
+        return {"shot_plan": json.loads(result).get("shots", [])}
+
+    async def wait_shot_plan_review(state: VideoAgentState) -> dict:
+        if "shot_plan" not in state:
+            return {}
+        if state.get("shot_plan_approved"):
+            return {}
+        return {"__status": "shot_plan_review"}
+
     async def wait_image_review(state: VideoAgentState) -> dict:
         if state.get("images_approved"):
             return {}
         return {"__status": "image_review"}
 
     async def generate_images(state: VideoAgentState) -> dict:
-        prompts = state.get("image_prompts", [])
+        planned_shots = state.get("shot_plan", [])
+        segments = clip_segments_for_shot_plan(planned_shots)
+        prompts = [segment["image_prompt"] for segment in segments] or state.get("image_prompts", [])
         existing = state.get("generated_images", [])
         images = []
         for i, p in enumerate(prompts):
@@ -112,28 +169,32 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                     p + review_guidance(state, "image", old.get("id") if old else None),
                     ref_image_url=state.get("main_image_data_uri") or None,
                 )
-                images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
-        return {"generated_images": images}
+                images.append({"sort_order": i, "image_url": url, "status": "pending_review", **(segments[i] if i < len(segments) else {})})
+        return {"generated_images": images, "clip_segments": segments}
 
     async def generate_video_clips(state: VideoAgentState) -> dict:
         feedback_by_index = state.get("video_feedback_by_sort_order", {})
         if state.get("video_clips") and not feedback_by_index:
             return {"video_clips": state["video_clips"], "video_clips_reused": True}
         approved_urls = [img["image_url"] for img in state.get("generated_images", []) if img.get("status") == "approved"]
+        segments = state.get("clip_segments") or clip_segments_for_shot_plan(state.get("shot_plan", []))
         if state.get("video_clips") and feedback_by_index:
             clips = list(state["video_clips"])
             for index, guidance in feedback_by_index.items():
                 if index >= len(approved_urls):
                     continue
                 clips[index] = await generate_video(
-                    prompt=f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}\n\nReviewer improvement guidance:\n{guidance}",
+                    prompt=((segments[index].get("video_motion_prompt") if index < len(segments) else None)
+                    or f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}")
+                    + f"\n\nReviewer improvement guidance:\n{guidance}",
                     image_urls=[approved_urls[index]],
                 )
             return {"video_clips": clips, "video_clips_reused": False, "regenerated_clip_indexes": list(feedback_by_index)}
         clips = []
-        for url in approved_urls:
+        for index, url in enumerate(approved_urls):
             clip_url = await generate_video(
-                prompt=f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}" + review_guidance(state, "video_clip"),
+                prompt=((segments[index].get("video_motion_prompt") if index < len(segments) else None)
+                or f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}") + review_guidance(state, "video_clip"),
                 image_urls=[url],
             )
             clips.append(clip_url)
@@ -154,18 +215,25 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     async def composite_video(state: VideoAgentState) -> dict:
         clips = state.get("video_clips", [])
         options = await composition_options(state)
-        clip_duration = options["clip_duration"]
-        visual_duration = len(clips) * clip_duration
+        segments = state.get("clip_segments") or clip_segments_for_shot_plan(state.get("shot_plan", []))
+        planned_durations = [float(segment.get("target_duration_seconds") or options["clip_duration"]) for segment in segments]
+        if len(planned_durations) != len(clips):
+            planned_durations = [float(options["clip_duration"])] * len(clips)
+        visual_duration = sum(planned_durations)
         word_duration = max((word["end"] for word in state.get("tts_words", [])), default=0)
         total_duration = max(float(state.get("tts_duration_seconds") or 0), word_duration, visual_duration) or 30
+        timing_scale = total_duration / visual_duration if visual_duration else 1
+        editing_blueprint = []
         video_elements = ""
-        for i in range(math.ceil(total_duration / clip_duration)):
-            url = clips[i % len(clips)] if clips else ""
-            duration = min(clip_duration, total_duration - i * clip_duration)
+        start = 0.0
+        for i, url in enumerate(clips):
+            duration = planned_durations[i] * timing_scale
             video_elements += (
-                f'<video id="clip-{i}" class="clip" src="{url}" data-start="{i * clip_duration}" '
+                f'<video id="clip-{i}" class="clip" src="{url}" data-start="{start}" '
                 f'data-duration="{duration}" data-track-index="0" muted playsinline></video>\n'
             )
+            editing_blueprint.append({"clip_index": i, "start_seconds": start, "duration_seconds": duration, "source_target_duration_seconds": planned_durations[i]})
+            start += duration
 
         subtitle_elements = ""
         for w in state.get("tts_words", []):
@@ -183,8 +251,10 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             subtitle_size=options["subtitle_size"],
         )
         path = await render_hyperframes(html)
-        return {"hyperframes_html": html, "final_video_path": path}
+        return {"hyperframes_html": html, "final_video_path": path, "clip_segments": segments, "editing_blueprint": editing_blueprint}
 
+    graph.add_node("generate_creative_brief", tracked_node("generate_creative_brief", generate_creative_brief))
+    graph.add_node("wait_creative_brief_review", wait_creative_brief_review)
     graph.add_node(
         "generate_script",
         tracked_node(
@@ -194,15 +264,21 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         ),
     )
     graph.add_node("wait_script_review", wait_script_review)
+    graph.add_node("generate_shot_plan", tracked_node("generate_shot_plan", generate_shot_plan))
+    graph.add_node("wait_shot_plan_review", wait_shot_plan_review)
     graph.add_node("generate_images", tracked_node("generate_images", generate_images))
     graph.add_node("wait_image_review", wait_image_review)
     graph.add_node("generate_video_clips", tracked_node("generate_video_clips", generate_video_clips))
     graph.add_node("generate_voiceover", tracked_node("generate_voiceover", generate_voiceover))
     graph.add_node("composite_video", tracked_node("composite_video", composite_video))
 
-    graph.set_entry_point("generate_script")
+    graph.set_entry_point("generate_creative_brief")
+    graph.add_edge("generate_creative_brief", "wait_creative_brief_review")
+    graph.add_edge("wait_creative_brief_review", "generate_script")
     graph.add_edge("generate_script", "wait_script_review")
-    graph.add_edge("wait_script_review", "generate_images")
+    graph.add_edge("wait_script_review", "generate_shot_plan")
+    graph.add_edge("generate_shot_plan", "wait_shot_plan_review")
+    graph.add_edge("wait_shot_plan_review", "generate_images")
     graph.add_edge("generate_images", "wait_image_review")
     graph.add_edge("wait_image_review", "generate_video_clips")
     graph.add_edge("generate_video_clips", "generate_voiceover")

@@ -23,6 +23,34 @@ class ScriptResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+class CreativeBriefResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    content: dict
+    status: str
+    model_config = {"from_attributes": True}
+
+
+class CreativeBriefUpdate(BaseModel):
+    approved: bool
+    content: dict | None = None
+    feedback: str | None = None
+
+
+class ShotPlanResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    shots: list[dict]
+    status: str
+
+    model_config = {"from_attributes": True}
+
+
+class ShotPlanUpdate(BaseModel):
+    approved: bool
+    shots: list[dict] | None = None
+    feedback: str | None = None
+
 
 class ScriptUpdate(BaseModel):
     approved: bool

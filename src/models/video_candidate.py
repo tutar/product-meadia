@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, Column, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
 from src.models.base import Base, TimestampMixin, UUIDMixin
@@ -15,6 +15,7 @@ class VideoCandidate(Base, UUIDMixin, TimestampMixin):
     version = Column(Integer, nullable=False, default=1)
     status = Column(String(20), nullable=False, default="pending_review")
     is_current = Column(Boolean, nullable=False, default=True)
+    generation_context = Column(JSONB, nullable=False, default=dict)
 
     task = relationship("VideoTask", back_populates="video_candidates")
     asset = relationship("MediaAsset")

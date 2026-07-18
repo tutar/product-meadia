@@ -1,14 +1,18 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.agents.promo_graph import build_promo_graph, promo_graph
+from src.agents.promo_graph import build_promo_graph, clip_segments_for_shot_plan, promo_graph
 
 
 @pytest.mark.asyncio
 async def test_promo_graph_structure():
     """Verify the graph has all expected nodes and entry point."""
     nodes = list(promo_graph.nodes.keys())
+    assert "generate_creative_brief" in nodes
+    assert "wait_creative_brief_review" in nodes
     assert "generate_script" in nodes
     assert "wait_script_review" in nodes
+    assert "generate_shot_plan" in nodes
+    assert "wait_shot_plan_review" in nodes
     assert "generate_images" in nodes
     assert "wait_image_review" in nodes
     assert "generate_video_clips" in nodes
@@ -44,8 +48,10 @@ async def test_promo_graph_single_step_generate_script():
             "scenarios": ["daily"],
             "main_image_url": None,
         },
-        "task_type": "promo",
-        "image_count": 4,
+            "task_type": "promo",
+            "image_count": 4,
+            "creative_brief": {"core_promise": "test"},
+            "creative_brief_approved": True,
         "viral_url": "",
         "script_content": "",
         "edited_script_content": "",
@@ -74,7 +80,8 @@ async def test_promo_graph_single_step_generate_script():
         # Run the graph until the first interrupt (wait_script_review)
         config = {"configurable": {"thread_id": "test-thread-1"}}
         events = []
-        async for event in promo_graph.astream(initial_state, config):
+        graph = build_promo_graph(interrupt_before=["wait_script_review"])
+        async for event in graph.astream(initial_state, config):
             events.append(event)
 
         # Should have generated script and hit interrupt
@@ -85,15 +92,16 @@ async def test_promo_graph_single_step_generate_script():
 
 @pytest.mark.asyncio
 async def test_script_review_feedback_is_passed_to_the_next_generation():
-    graph = build_promo_graph()
+    graph = build_promo_graph(interrupt_before=["wait_script_review"])
     state = {
         "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
         "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
         "script_content": "", "edited_script_content": "", "image_prompts": [], "voiceover_text": "",
         "generated_images": [], "video_clips": [], "tts_audio_url": "", "tts_words": [],
         "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
-        "hyperframes_html": "", "final_video_path": "", "review_approved": False,
-        "script_approved": False, "images_approved": False, "character_approved": False,
+            "hyperframes_html": "", "final_video_path": "", "review_approved": False,
+            "creative_brief": {"core_promise": "test"}, "creative_brief_approved": True,
+            "script_approved": False, "images_approved": False, "character_approved": False,
         "review_feedback": [{"target_type": "script", "content": "Use a clearer opening hook."}], "messages": [],
     }
     response = '{"script": "script", "voiceover": "script", "image_prompts": ["prompt"]}'
@@ -102,6 +110,33 @@ async def test_script_review_feedback_is_passed_to_the_next_generation():
         async for _ in graph.astream(state, {"configurable": {"thread_id": "feedback"}}):
             pass
     assert "Use a clearer opening hook." in llm.await_args.args[2]
+
+
+@pytest.mark.asyncio
+async def test_approved_script_generates_shot_plan_before_images():
+    graph = build_promo_graph(interrupt_before=["wait_shot_plan_review"])
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "creative_brief": {"core_promise": "calm"}, "creative_brief_approved": True,
+        "script_content": "script", "edited_script_content": "", "image_prompts": ["legacy prompt"], "voiceover_text": "voiceover",
+        "shot_plan": [], "shot_plan_approved": False,
+        "generated_images": [], "video_clips": [], "tts_audio_url": "", "tts_words": [], "lipsync_video_url": "",
+        "character_image_url": "", "viral_url": "", "viral_analysis": {}, "hyperframes_html": "", "final_video_path": "",
+        "review_approved": False, "script_approved": True, "images_approved": False, "character_approved": False,
+        "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
+    }
+    with patch("src.agents.promo_graph.llm_chat", new_callable=AsyncMock) as llm:
+        llm.return_value = '{"shots": [{"image_prompt": "planned image", "video_motion_prompt": "planned movement"}]}'
+        events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "shot-plan"}})]
+    assert "generate_shot_plan" in [next(iter(event)) for event in events if event]
+    assert llm.await_args.args[0] == "scriptwriter"
+
+
+def test_long_shot_is_split_into_model_sized_clip_segments():
+    segments = clip_segments_for_shot_plan([{"target_duration_seconds": 12, "image_prompt": "still", "video_motion_prompt": "move"}])
+    assert [segment["target_duration_seconds"] for segment in segments] == [5, 5, 2]
+    assert [(segment["shot_index"], segment["segment_index"]) for segment in segments] == [(0, 0), (0, 1), (0, 2)]
 
 
 @pytest.mark.asyncio
@@ -180,7 +215,7 @@ async def test_reused_video_clips_are_marked_so_the_worker_can_continue_after_re
     assert reused_output["video_clips_reused"] is True
     html = render.await_args.args[0]
     assert 'data-duration="12.5"' in html
-    assert html.count('<video id="clip-') == 3
+    assert html.count('<video id="clip-') == 1
 
 
 @pytest.mark.asyncio
@@ -220,6 +255,7 @@ async def test_clip_feedback_replaces_only_the_rejected_clip():
         "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
         "hyperframes_html": "", "final_video_path": "", "script_approved": True, "images_approved": True,
         "character_approved": False, "review_approved": False, "review_feedback": [],
+        "shot_plan": [{"target_duration_seconds": 5, "video_motion_prompt": "Slow orbit around the bottle."}, {"target_duration_seconds": 5, "video_motion_prompt": "Tilt toward the label."}],
         "video_feedback_by_sort_order": {1: "Make the movement more energetic."}, "messages": [],
     }
     with patch("src.agents.promo_graph.generate_video", new_callable=AsyncMock) as video, patch("src.agents.promo_graph.generate_tts", new_callable=AsyncMock) as tts, patch("src.agents.promo_graph.render_hyperframes", new_callable=AsyncMock) as render:
@@ -231,3 +267,5 @@ async def test_clip_feedback_replaces_only_the_rejected_clip():
     assert output["video_clips"] == ["https://clip-1", "https://replacement"]
     assert output["regenerated_clip_indexes"] == [1]
     assert video.await_count == 1
+    assert "Tilt toward the label." in video.await_args.kwargs["prompt"]
+    assert "Make the movement more energetic." in video.await_args.kwargs["prompt"]

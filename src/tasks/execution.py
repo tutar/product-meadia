@@ -16,6 +16,8 @@ ARTIFACT_STATE_KEYS = (
 )
 
 NODE_TO_STAGE = {
+    "generate_creative_brief": "planning",
+    "generate_shot_plan": "planning",
     "generate_script": "scripting",
     "generate_rewritten_script": "scripting",
     "generate_images": "imaging",
@@ -65,6 +67,8 @@ def next_execution_attempt(history: list[dict], *, is_retry: bool) -> int:
 
 def review_status_for_node(node_name: str | None) -> str:
     return {
+        "generate_creative_brief": "creative_brief_review",
+        "generate_shot_plan": "shot_plan_review",
         "generate_script": "script_review",
         "generate_rewritten_script": "script_review",
         "generate_images": "image_review",

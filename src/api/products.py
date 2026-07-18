@@ -97,7 +97,10 @@ async def create(body:ProductCreate,db=Depends(get_async_session),user=Depends(g
     p=Product(user_id=user.id,main_image_url=url,main_image_source=source,**data); db.add(p)
     for sort_order, asset in enumerate(packaging_assets):
         db.add(ProductPackagingImage(product_id=p.id, asset_id=asset.id, source='upload', sort_order=sort_order))
-    await db.commit(); await db.refresh(p); return p
+    await db.commit()
+    # The response includes packaging_images.  Re-query it with the relation
+    # eagerly loaded so FastAPI serialization never triggers async lazy I/O.
+    return await owned(db, user, p.id)
 
 @router.get('',response_model=PaginatedProducts)
 async def listing(category_id=None,search=None,page:int=1,page_size:int=20,db=Depends(get_async_session),user=Depends(get_current_user)):
@@ -133,7 +136,7 @@ async def update(id,body:ProductUpdate,db=Depends(get_async_session),user=Depend
  await db.execute(sql_delete(ProductPackagingImage).where(ProductPackagingImage.product_id == p.id))
  for sort_order, asset in enumerate(packaging_assets):
   db.add(ProductPackagingImage(product_id=p.id, asset_id=asset.id, source='upload', sort_order=sort_order))
- p.attributes=attrs; await db.commit(); await db.refresh(p); return p
+ p.attributes=attrs; await db.commit(); return await owned(db,user,p.id)
 @router.delete('/{id}',status_code=204)
 async def delete(id,db=Depends(get_async_session),user=Depends(get_current_user)):
  p=await owned(db,user,id); await db.delete(p); await db.commit()

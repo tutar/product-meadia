@@ -26,10 +26,11 @@ function ResumeButton({ taskId, onResumed }: { taskId: string; onResumed: () => 
   );
 }
 
-const REVIEW_STATES = ["script_review", "image_review", "character_review", "video_review", "composition_review"];
+const REVIEW_STATES = ["creative_brief_review", "script_review", "shot_plan_review", "image_review", "character_review", "video_review", "composition_review"];
 const FINAL_STATES = ["done", "failed", "cancelled"];
-const STEPS_DISPLAY = ["pending", "scripting", "script_review", "imaging", "image_review", "video_gen", "video_review", "compositing", "composition_review", "done"];
-const SCRIPT_AVAILABLE_STATES = ["script_review", "imaging", "image_review", "video_gen", "compositing", "done"];
+const STEPS_DISPLAY = ["pending", "planning", "creative_brief_review", "scripting", "script_review", "shot_plan_review", "imaging", "image_review", "video_gen", "video_review", "compositing", "composition_review", "done"];
+const SCRIPT_AVAILABLE_STATES = ["script_review", "planning", "shot_plan_review", "imaging", "image_review", "video_gen", "compositing", "done"];
+const SHOT_PLAN_AVAILABLE_STATES = ["shot_plan_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 
 const STAGE_FOR_STEP: Record<string, string> = {
   analyze_source: "analysis", generate_script: "scripting", generate_rewritten_script: "scripting",
@@ -70,6 +71,10 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const id = taskId ?? routeTaskId;
   const [task, setTask] = useState<any>(null);
   const [script, setScript] = useState<any>(null);
+  const [creativeBrief, setCreativeBrief] = useState<any>(null);
+  const [shotPlan, setShotPlan] = useState<any>(null);
+  const [creativeBriefDraft, setCreativeBriefDraft] = useState("");
+  const [shotPlanDraft, setShotPlanDraft] = useState("");
   const [images, setImages] = useState<any[]>([]);
   const [videoCandidates, setVideoCandidates] = useState<any[]>([]);
   const [editedContent, setEditedContent] = useState("");
@@ -91,14 +96,24 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     if (!id) return;
     const tdata = await api.get(`/tasks/${id}`).then(r => r.data).catch(() => null);
     if (!tdata) return;
-    const [sdata, idata, vdata] = await Promise.all([
+    const [bdata, sdata, pdata, idata, vdata] = await Promise.all([
+      ["creative_brief_review", ...SCRIPT_AVAILABLE_STATES].includes(tdata.status)
+        ? api.get(`/tasks/${id}/creative-brief`).then(r => r.data).catch(() => null)
+        : Promise.resolve(null),
       SCRIPT_AVAILABLE_STATES.includes(tdata.status)
         ? api.get(`/tasks/${id}/script`).then(r => r.data).catch(() => null)
+        : Promise.resolve(null),
+      SHOT_PLAN_AVAILABLE_STATES.includes(tdata.status)
+        ? api.get(`/tasks/${id}/shot-plan`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
       api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
       api.get(`/tasks/${id}/video-candidates`).then(r => r.data).catch(() => []),
     ]);
     if (tdata) { setTask(tdata); onTaskLoaded?.(tdata); }
+    setCreativeBrief(bdata);
+    if (bdata) setCreativeBriefDraft(JSON.stringify(bdata.content, null, 2));
+    setShotPlan(pdata);
+    if (pdata) setShotPlanDraft(JSON.stringify(pdata.shots, null, 2));
     if (sdata) { setScript(sdata); setEditedContent(sdata.edited_content || sdata.content); }
     if (idata.length > 0) setImages(idata);
     setVideoCandidates(vdata);
@@ -145,6 +160,26 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
 
   const approveScript = async () => {
     await runAction("script", async () => { setLoading(true); try { await api.put(`/tasks/${id}/script`, { approved: true, edited_content: editedContent }); await fetchData(); } finally { setLoading(false); } });
+  };
+  const approveCreativeBrief = async () => {
+    await runAction("creative-brief", async () => {
+      await api.put(`/tasks/${id}/creative-brief`, { approved: true, content: JSON.parse(creativeBriefDraft) });
+      await fetchData();
+    });
+  };
+  const regenerateCreativeBrief = async (suggestion: string) => {
+    await api.put(`/tasks/${id}/creative-brief`, { approved: false, feedback: suggestion });
+    await fetchData();
+  };
+  const approveShotPlan = async () => {
+    await runAction("shot-plan", async () => {
+      await api.put(`/tasks/${id}/shot-plan`, { approved: true, shots: JSON.parse(shotPlanDraft) });
+      await fetchData();
+    });
+  };
+  const regenerateShotPlan = async (suggestion: string) => {
+    await api.put(`/tasks/${id}/shot-plan`, { approved: false, feedback: suggestion });
+    await fetchData();
   };
 
   const rejectScript = async (suggestion: string) => {
@@ -332,6 +367,17 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
       )}
 
+      {creativeBrief && creativeBrief.status === "pending_review" && (
+        <div className="card mb-6">
+          <h3 className="mb-4">Creative Brief</h3>
+          <textarea className="textarea" value={creativeBriefDraft} onChange={e => setCreativeBriefDraft(e.target.value)} aria-label="Creative Brief JSON" />
+          <div className="flex gap-3 mt-4">
+            <button className="btn btn-primary" disabled={busyActions.includes("creative-brief")} onClick={() => void approveCreativeBrief()}>Approve and generate script</button>
+            <button className="btn btn-ghost" onClick={() => openFeedback("Regenerate creative brief", regenerateCreativeBrief)}>Regenerate</button>
+          </div>
+        </div>
+      )}
+
       {script && script.status === "pending_review" && (
         <div className="card mb-6">
           <h3 className="mb-4">{t("task.scriptReview")}</h3>
@@ -351,10 +397,25 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
       )}
 
+      {shotPlan && shotPlan.status === "pending_review" && (
+        <div className="card mb-6">
+          <h3 className="mb-4">Shot Plan</h3>
+          <p className="text-secondary text-sm mb-4">Review the ordered shots before keyframes are generated. Each shot drives its image and motion prompt.</p>
+          <textarea className="textarea" value={shotPlanDraft} onChange={e => setShotPlanDraft(e.target.value)} aria-label="Shot Plan JSON" />
+          <div className="flex gap-3 mt-4">
+            <button className="btn btn-primary" disabled={busyActions.includes("shot-plan")} onClick={() => void approveShotPlan()}>Approve and generate keyframes</button>
+            <button className="btn btn-ghost" onClick={() => openFeedback("Regenerate shot plan", regenerateShotPlan)}>Regenerate</button>
+          </div>
+        </div>
+      )}
+
       {images.length > 0 && (
         <div className="card mb-6">
           <div className="flex items-center justify-between mb-6">
-            <h3>{t("task.imageReview")}</h3>
+            <div>
+              <h3>{shotPlan ? "Keyframe review" : t("task.imageReview")}</h3>
+              {shotPlan && <p className="text-secondary text-sm">Each keyframe belongs to a Shot Plan clip segment.</p>}
+            </div>
             <span className="text-secondary text-sm">{images.filter((i: any) => i.status === "approved").length}/{images.length} {t("task.approved")}</span>
           </div>
           <div className="image-grid">
