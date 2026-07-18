@@ -154,6 +154,7 @@
       "generate_creative_brief": "Generate creative brief",
       "wait_creative_brief_review": "Wait for creative brief review",
       "generate_script": "Generate script",
+      "review_feedback": "Record improvement guidance",
       "wait_script_review": "Wait for script review",
       "wait_image_review": "Wait for image review",
       "wait_character_review": "Wait for character review",

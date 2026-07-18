@@ -26,7 +26,7 @@ from src.schemas.task import (
     ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
 )
 from src.auth.deps import get_current_user
-from src.tasks.execution import stage_for_node
+from src.tasks.execution import feedback_stage, stage_for_node
 from src.tasks.recovery import is_stale_task
 from src.services.product_context import build_product_snapshot
 from src.api.media import get_media_service
@@ -97,7 +97,7 @@ def validated_feedback(feedback: str | None) -> str:
 def record_feedback(db: AsyncSession, task: VideoTask, target_type: str, target_id: UUID | None, feedback: str) -> None:
     db.add(ReviewFeedback(task_id=task.id, target_type=target_type, target_id=target_id, content=feedback))
     task.progress_log = list(task.progress_log or []) + [{
-        "stage": target_type,
+        "stage": feedback_stage(target_type),
         "step": "review_feedback",
         "time": datetime.utcnow().isoformat() + "Z",
         "status": "ok",

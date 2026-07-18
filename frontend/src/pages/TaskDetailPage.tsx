@@ -39,13 +39,20 @@ const STAGE_FOR_STEP: Record<string, string> = {
   generate_tts_and_lipsync: "video_gen", composite_video: "compositing", composite: "compositing",
 };
 
+const LEGACY_FEEDBACK_STAGE: Record<string, string> = {
+  creative_brief: "planning", shot_plan: "planning", script: "scripting", image: "imaging",
+  character: "character", video: "video_gen", composition: "compositing",
+};
+
 type LogEntry = { attempt?: number; stage?: string; step: string; status: string; summary?: string; time?: string; started_at?: string; finished_at?: string; duration_ms?: number };
 
 function executionAttempts(log: LogEntry[]) {
   const attempts = new Map<number, Map<string, LogEntry[]>>();
   for (const entry of log) {
     const attempt = entry.attempt || 1;
-    const stage = entry.stage || STAGE_FOR_STEP[entry.step] || "other";
+    const stage = entry.step === "review_feedback"
+      ? LEGACY_FEEDBACK_STAGE[entry.stage || ""] || "other"
+      : entry.stage || STAGE_FOR_STEP[entry.step] || "other";
     if (!attempts.has(attempt)) attempts.set(attempt, new Map());
     const stages = attempts.get(attempt)!;
     if (!stages.has(stage)) stages.set(stage, []);
@@ -234,6 +241,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const currentStepIdx = stepIndex(effectiveStep);
   const isProcessing = !FINAL_STATES.includes(task.status) && !REVIEW_STATES.includes(task.status);
   const isReview = REVIEW_STATES.includes(task.status);
+  const keyframesAreReviewable = task.status === "image_review" || task.status === "imaging";
   const statusLabel = String(t(`steps.${task.status}`, task.status.replace(/_/g, " ")));
   const titleKey = task.type === "promo" ? "task.promoTitle" : task.type === "viral" ? "task.viralTitle" : "task.personifyTitle";
   const taskName = task.product_snapshot?.name || String(t(titleKey));
@@ -459,7 +467,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                 )}
                 <div className="image-status">{img.status.replace(/_/g, " ")}</div>
                 {img.generation_context?.keyframe_role && <div className="text-secondary text-sm">{t("task.keyframeLocation", { shot: Number(img.generation_context.shot_index) + 1, segment: Number(img.generation_context.segment_index) + 1, role: t(`task.keyframeRole${img.generation_context.keyframe_role === "end" ? "End" : "Start"}`) })}</div>}
-                {task.status === "image_review" && (
+                {keyframesAreReviewable && (
                   <div className="image-actions">
                     {img.status === "pending_review" && img.access_url && (
                       <button className="btn btn-primary btn-sm" disabled={busyActions.includes(`image:${img.id}`)} style={{ flex: 1 }} onClick={() => reviewImage(img.id, "approve")}>{t("task.approve")}</button>
