@@ -230,6 +230,30 @@ async def test_reused_video_clips_are_marked_so_the_worker_can_continue_after_re
 
 
 @pytest.mark.asyncio
+async def test_editing_blueprint_records_rendered_transition_and_audio_marker():
+    graph = build_promo_graph(interrupt_before=[])
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "script_content": "script", "edited_script_content": "", "image_prompts": ["prompt"], "voiceover_text": "script",
+        "shot_plan": [{"target_duration_seconds": 5, "voiceover_text": "first"}, {"target_duration_seconds": 5, "voiceover_text": "second"}],
+        "creative_brief": {"core_promise": "test"}, "creative_brief_approved": True, "shot_plan_approved": True,
+        "generated_images": [
+            {"image_url": "https://image-1", "status": "approved"}, {"image_url": "https://image-2", "status": "approved"},
+            {"image_url": "https://image-3", "status": "approved"}, {"image_url": "https://image-4", "status": "approved"},
+        ],
+        "video_clips": ["https://clip-1", "https://clip-2"], "tts_audio_url": "", "tts_words": [], "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {}, "hyperframes_html": "", "final_video_path": "", "script_approved": True, "images_approved": True, "review_approved": False, "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
+    }
+    with patch("src.agents.promo_graph.generate_tts", new_callable=AsyncMock) as tts, patch("src.agents.promo_graph.render_hyperframes", new_callable=AsyncMock) as render:
+        tts.return_value = {"audio_url": "https://audio", "words": [], "tts_duration_seconds": 10}
+        render.return_value = "/tmp/final.mp4"
+        events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "blueprint"}})]
+    blueprint = next(event["composite_video"]["editing_blueprint"] for event in events if "composite_video" in event)
+    assert blueprint[1]["transition"] == "cut"
+    assert blueprint[1]["audio_marker_seconds"] == 5
+
+
+@pytest.mark.asyncio
 async def test_composition_feedback_regenerates_tts_from_clean_voiceover_text():
     graph = build_promo_graph(interrupt_before=[])
     state = {
@@ -261,7 +285,10 @@ async def test_clip_feedback_replaces_only_the_rejected_clip():
         "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 2,
         "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
         "script_content": "script", "edited_script_content": "", "image_prompts": ["one", "two"], "voiceover_text": "script",
-        "generated_images": [{"image_url": "https://image-1", "status": "approved"}, {"image_url": "https://image-2", "status": "approved"}],
+        "generated_images": [
+            {"image_url": "https://image-1", "status": "approved"}, {"image_url": "https://image-2", "status": "approved"},
+            {"image_url": "https://image-3", "status": "approved"}, {"image_url": "https://image-4", "status": "approved"},
+        ],
         "video_clips": ["https://clip-1", "https://clip-2"], "tts_audio_url": "", "tts_words": [],
         "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {},
         "hyperframes_html": "", "final_video_path": "", "script_approved": True, "images_approved": True,
