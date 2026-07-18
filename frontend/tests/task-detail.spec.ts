@@ -206,6 +206,7 @@ test("video clip review presents four clips as a desktop contact sheet", async (
   expect((await page.getByRole("button", { name: "View keyframe 1" }).boundingBox())!.y).toBeLessThan((await review.boundingBox())!.y);
   const clips = review.locator("video");
   await expect(clips).toHaveCount(4);
+  await expect(clips.first()).toHaveAttribute("controls", "");
   const positions = await clips.evaluateAll(elements => elements.map(element => {
     const box = element.getBoundingClientRect();
     return { x: Math.round(box.x), y: Math.round(box.y), width: Math.round(box.width) };
@@ -230,6 +231,7 @@ test("shot segment viewer is muted, navigable, and exposes review actions", asyn
 
   const viewer = page.getByRole("dialog", { name: "Video viewer" });
   const video = viewer.locator("video");
+  await expect(video).toHaveAttribute("controls", "");
   await expect(video).toHaveJSProperty("muted", true);
   await expect(viewer.getByRole("button", { name: "Approve" })).toBeVisible();
   await page.keyboard.press("ArrowRight");

@@ -231,7 +231,9 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("tts_audio_url") and not review_guidance(state, "composition"):
             return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"]}
         voiceover = state.get("voiceover_text") or state.get("edited_script_content") or state["script_content"]
-        result = await generate_tts(voiceover)
+        segments = state.get("clip_segments") or clip_segments_for_shot_plan(state.get("shot_plan", []))
+        planned_duration = sum(float(segment.get("target_duration_seconds") or 0) for segment in segments)
+        result = await generate_tts(voiceover, **({"target_duration_seconds": planned_duration} if planned_duration else {}))
         return {
             "tts_audio_url": result["audio_url"],
             "tts_words": result["words"],
@@ -248,13 +250,12 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             planned_durations = [float(options["clip_duration"])] * len(clips)
         visual_duration = sum(planned_durations)
         word_duration = max((word["end"] for word in state.get("tts_words", [])), default=0)
-        total_duration = max(float(state.get("tts_duration_seconds") or 0), word_duration, visual_duration) or 30
-        timing_scale = total_duration / visual_duration if visual_duration else 1
+        total_duration = visual_duration or max(float(state.get("tts_duration_seconds") or 0), word_duration) or 30
         editing_blueprint = []
         video_elements = ""
         start = 0.0
         for i, url in enumerate(clips):
-            duration = planned_durations[i] * timing_scale
+            duration = planned_durations[i]
             video_elements += (
                 f'<video id="clip-{i}" class="clip" src="{url}" data-start="{start}" '
                 f'data-duration="{duration}" data-track-index="0" muted playsinline></video>\n'
