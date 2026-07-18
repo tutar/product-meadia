@@ -20,6 +20,15 @@ def test_openapi_exposes_catalog_contract():
     }
 
 
+def test_runtime_openapi_exposes_reviewable_promo_planning_artifacts():
+    from src.main import app
+
+    paths = app.openapi()["paths"]
+    assert "/api/v1/tasks/{task_id}/creative-brief" in paths
+    assert "/api/v1/tasks/{task_id}/shot-plan" in paths
+    assert "/api/v1/tasks/{task_id}/editing-blueprint" in paths
+
+
 def test_schema_contains_generic_catalog_and_snapshot():
     ddl = (ROOT / "db/schema.sql").read_text()
     for table in (

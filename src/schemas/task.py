@@ -68,6 +68,7 @@ class ImageResponse(BaseModel):
     access_url: str | None = None
     sort_order: int
     status: str
+    generation_context: dict = {}
 
     model_config = {"from_attributes": True}
 
@@ -96,7 +97,16 @@ class VideoCandidateResponse(BaseModel):
     version: int
     status: str
     is_current: bool
+    generation_context: dict = {}
 
+    model_config = {"from_attributes": True}
+
+
+class EditingBlueprintResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    entries: list[dict]
+    status: str
     model_config = {"from_attributes": True}
 
 

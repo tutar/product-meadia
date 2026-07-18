@@ -25,6 +25,7 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     script = relationship("Script", back_populates="task", uselist=False)
     creative_brief = relationship("CreativeBrief", back_populates="task", uselist=False)
     shot_plan = relationship("ShotPlan", back_populates="task", uselist=False)
+    editing_blueprint = relationship("EditingBlueprint", back_populates="task", uselist=False)
     images = relationship("GeneratedImage", back_populates="task")
     video_candidates = relationship("VideoCandidate", back_populates="task")
     viral_analysis = relationship("ViralAnalysis", back_populates="task", uselist=False)

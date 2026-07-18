@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import tempfile
+from dataclasses import dataclass
 from urllib.parse import urlparse
 import httpx
 from src.config import settings
@@ -10,6 +11,20 @@ HEADERS = {
     "Authorization": f"Bearer {settings.litellm_api_key}",
     "Content-Type": "application/json",
 }
+
+
+@dataclass(frozen=True)
+class VideoModelCapability:
+    model: str
+    max_duration_seconds: int
+    max_keyframes: int
+
+
+# Keep this capability beside the provider request.  Planning must use the
+# same limit that generation can actually honour.
+SELECTED_VIDEO_MODEL = VideoModelCapability(
+    model="agnes-video-v2.0", max_duration_seconds=5, max_keyframes=2,
+)
 
 
 def _is_private_image_url(url: str) -> bool:
@@ -39,7 +54,7 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
     Uses OpenAI-compatible /v1/videos endpoint (create + poll).
     """
     payload = {
-        "model": "agnes-video-v2.0",
+        "model": SELECTED_VIDEO_MODEL.model,
         "prompt": prompt,
         "width": 1152,
         "height": 768,

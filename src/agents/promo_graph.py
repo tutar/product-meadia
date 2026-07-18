@@ -3,7 +3,7 @@ import math
 from langgraph.graph import StateGraph, END
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
-from src.tools.video_gen import generate_video
+from src.tools.video_gen import SELECTED_VIDEO_MODEL, generate_video
 from src.tools.tts import generate_tts
 from src.tools.render import render_hyperframes
 from src.tools.llm_tools import llm_chat
@@ -20,7 +20,6 @@ Return ONLY JSON: {{"script": "...", "voiceover": "...", "image_prompts": ["prom
 
 CREATIVE_BRIEF_SYSTEM = """Create a concise product-video Creative Brief as JSON with audience, core_promise, visual_direction, emotional_direction, pacing, and runtime_guidance. Runtime guidance may be null."""
 SHOT_PLAN_SYSTEM = """Return JSON with shots: an ordered list. Each shot has narrative_purpose, product_presentation, camera_motion, target_duration_seconds, voiceover_text, image_prompt, and video_motion_prompt."""
-MAX_VIDEO_SEGMENT_SECONDS = 5
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html><head><style>
@@ -76,19 +75,29 @@ def clip_segments_for_shot_plan(shot_plan: list[dict]) -> list[dict]:
     """Split approved shots into model-sized, sequential clip segments."""
     segments: list[dict] = []
     for shot_index, shot in enumerate(shot_plan):
-        target = max(1.0, float(shot.get("target_duration_seconds") or MAX_VIDEO_SEGMENT_SECONDS))
-        segment_count = max(1, math.ceil(target / MAX_VIDEO_SEGMENT_SECONDS))
+        target = max(1.0, float(shot.get("target_duration_seconds") or SELECTED_VIDEO_MODEL.max_duration_seconds))
+        segment_count = max(1, math.ceil(target / SELECTED_VIDEO_MODEL.max_duration_seconds))
         for segment_index in range(segment_count):
             segments.append({
                 "shot_index": shot_index,
                 "segment_index": segment_index,
                 "segment_count": segment_count,
-                "target_duration_seconds": min(MAX_VIDEO_SEGMENT_SECONDS, target - segment_index * MAX_VIDEO_SEGMENT_SECONDS),
+                "target_duration_seconds": min(SELECTED_VIDEO_MODEL.max_duration_seconds, target - segment_index * SELECTED_VIDEO_MODEL.max_duration_seconds),
                 "image_prompt": shot.get("image_prompt", ""),
                 "video_motion_prompt": shot.get("video_motion_prompt", ""),
                 "voiceover_text": shot.get("voiceover_text", ""),
             })
     return segments
+
+
+def keyframes_for_segments(segments: list[dict]) -> list[dict]:
+    """Expand each segment into the selected model's ordered keyframe inputs."""
+    roles = ["start", "end"][:SELECTED_VIDEO_MODEL.max_keyframes]
+    keyframes = []
+    for segment in segments:
+        for role in roles:
+            keyframes.append({**segment, "sort_order": len(keyframes), "keyframe_role": role})
+    return keyframes
 
 
 def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
@@ -156,7 +165,11 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     async def generate_images(state: VideoAgentState) -> dict:
         planned_shots = state.get("shot_plan", [])
         segments = clip_segments_for_shot_plan(planned_shots)
-        prompts = [segment["image_prompt"] for segment in segments] or state.get("image_prompts", [])
+        keyframes = keyframes_for_segments(segments)
+        prompts = [
+            f'{keyframe["image_prompt"]}\nKeyframe: {keyframe["keyframe_role"]} of clip segment {keyframe["segment_index"] + 1}.'
+            for keyframe in keyframes
+        ] or state.get("image_prompts", [])
         existing = state.get("generated_images", [])
         images = []
         for i, p in enumerate(prompts):
@@ -169,33 +182,47 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                     p + review_guidance(state, "image", old.get("id") if old else None),
                     ref_image_url=state.get("main_image_data_uri") or None,
                 )
-                images.append({"sort_order": i, "image_url": url, "status": "pending_review", **(segments[i] if i < len(segments) else {})})
+                images.append({"sort_order": i, "image_url": url, "status": "pending_review", **(keyframes[i] if i < len(keyframes) else {})})
         return {"generated_images": images, "clip_segments": segments}
 
     async def generate_video_clips(state: VideoAgentState) -> dict:
         feedback_by_index = state.get("video_feedback_by_sort_order", {})
         if state.get("video_clips") and not feedback_by_index:
             return {"video_clips": state["video_clips"], "video_clips_reused": True}
-        approved_urls = [img["image_url"] for img in state.get("generated_images", []) if img.get("status") == "approved"]
+        approved_images = [img for img in state.get("generated_images", []) if img.get("status") == "approved"]
         segments = state.get("clip_segments") or clip_segments_for_shot_plan(state.get("shot_plan", []))
+        def images_for_segment(index: int) -> list[str]:
+            matching = [
+                image for image in approved_images
+                if image.get("segment_index") == segments[index].get("segment_index")
+                and image.get("shot_index") == segments[index].get("shot_index")
+            ] if index < len(segments) else []
+            if matching:
+                return [image["image_url"] for image in sorted(matching, key=lambda image: image.get("keyframe_role") != "start")]
+            # Existing tasks created before segment metadata remain runnable.
+            return [approved_images[index]["image_url"]] if index < len(approved_images) else []
         if state.get("video_clips") and feedback_by_index:
             clips = list(state["video_clips"])
             for index, guidance in feedback_by_index.items():
-                if index >= len(approved_urls):
+                image_urls = images_for_segment(index)
+                if not image_urls:
                     continue
                 clips[index] = await generate_video(
                     prompt=((segments[index].get("video_motion_prompt") if index < len(segments) else None)
                     or f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}")
                     + f"\n\nReviewer improvement guidance:\n{guidance}",
-                    image_urls=[approved_urls[index]],
+                    image_urls=image_urls,
                 )
             return {"video_clips": clips, "video_clips_reused": False, "regenerated_clip_indexes": list(feedback_by_index)}
         clips = []
-        for index, url in enumerate(approved_urls):
+        for index in range(len(segments) or len(approved_images)):
+            image_urls = images_for_segment(index)
+            if not image_urls:
+                continue
             clip_url = await generate_video(
                 prompt=((segments[index].get("video_motion_prompt") if index < len(segments) else None)
                 or f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}") + review_guidance(state, "video_clip"),
-                image_urls=[url],
+                image_urls=image_urls,
             )
             clips.append(clip_url)
         return {"video_clips": clips, "video_clips_reused": False}
@@ -232,7 +259,16 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                 f'<video id="clip-{i}" class="clip" src="{url}" data-start="{start}" '
                 f'data-duration="{duration}" data-track-index="0" muted playsinline></video>\n'
             )
-            editing_blueprint.append({"clip_index": i, "start_seconds": start, "duration_seconds": duration, "source_target_duration_seconds": planned_durations[i]})
+            editing_blueprint.append({
+                "clip_index": i,
+                "start_seconds": start,
+                "duration_seconds": duration,
+                "source_target_duration_seconds": planned_durations[i],
+                "transition": "cut" if i == 0 else "dissolve",
+                "voiceover_alignment": segments[i].get("voiceover_text", "") if i < len(segments) else "",
+                "audio_marker_seconds": start,
+                "subtitle_mode": "word_timed",
+            })
             start += duration
 
         subtitle_elements = ""

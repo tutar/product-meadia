@@ -14,6 +14,7 @@ from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.creative_brief import CreativeBrief
 from src.models.shot_plan import ShotPlan
+from src.models.editing_blueprint import EditingBlueprint
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
 from src.models.review_feedback import ReviewFeedback
@@ -21,7 +22,7 @@ from src.models.viral_analysis import ViralAnalysis
 from src.models.media_asset import MediaAsset
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate, CreativeBriefResponse, CreativeBriefUpdate,
-    ShotPlanResponse, ShotPlanUpdate,
+    ShotPlanResponse, ShotPlanUpdate, EditingBlueprintResponse,
     ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
 )
 from src.auth.deps import get_current_user
@@ -348,6 +349,7 @@ async def list_images(
             "image_url": None, "asset_id": image.asset_id,
             "access_url": await media.access_url(image.asset_id,user.id) if image.asset_id else None,
             "sort_order": image.sort_order, "status": image.status,
+            "generation_context": image.generation_context or {},
         }
         for image in images
     ]
@@ -453,7 +455,16 @@ async def review_character(
 async def list_video_candidates(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service)):
     await owned_task(db, user, task_id)
     candidates = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id).order_by(VideoCandidate.kind, VideoCandidate.sort_order, VideoCandidate.version))).all()
-    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "kind": candidate.kind, "sort_order": candidate.sort_order, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current} for candidate in candidates]
+    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "kind": candidate.kind, "sort_order": candidate.sort_order, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current, "generation_context": candidate.generation_context or {}} for candidate in candidates]
+
+
+@router.get("/{task_id}/editing-blueprint", response_model=EditingBlueprintResponse)
+async def get_editing_blueprint(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)):
+    await owned_task(db, user, task_id)
+    blueprint = await db.scalar(select(EditingBlueprint).where(EditingBlueprint.task_id == task_id))
+    if not blueprint:
+        raise HTTPException(status_code=404, detail="Editing Blueprint not found")
+    return blueprint
 
 
 @router.put("/{task_id}/video-candidates/{candidate_id}")

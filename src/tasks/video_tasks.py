@@ -11,6 +11,7 @@ from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.creative_brief import CreativeBrief
 from src.models.shot_plan import ShotPlan
+from src.models.editing_blueprint import EditingBlueprint
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
 from src.models.review_feedback import ReviewFeedback
@@ -175,6 +176,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                         "image_url": await media.access_url(img.asset_id, task.user_id),
                         "asset_id": str(img.asset_id),
                         "status": img.status,
+                        **(img.generation_context or {}),
                     }
                     for img in db_images
                     if img.asset_id
@@ -677,6 +679,11 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 await db.commit()
 
         elif node_name in ("composite_video", "composite"):
+            blueprint = await db.scalar(select(EditingBlueprint).where(EditingBlueprint.task_id == task_id))
+            if not blueprint:
+                blueprint = EditingBlueprint(task_id=task_id, entries=[])
+                db.add(blueprint)
+            blueprint.entries = output.get("editing_blueprint", blueprint.entries)
             if output.get("final_video_path"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                 media = MediaService(db, create_rustfs_storage(settings))

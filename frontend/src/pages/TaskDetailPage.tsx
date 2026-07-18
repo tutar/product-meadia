@@ -73,6 +73,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const [script, setScript] = useState<any>(null);
   const [creativeBrief, setCreativeBrief] = useState<any>(null);
   const [shotPlan, setShotPlan] = useState<any>(null);
+  const [editingBlueprint, setEditingBlueprint] = useState<any>(null);
   const [creativeBriefDraft, setCreativeBriefDraft] = useState("");
   const [shotPlanDraft, setShotPlanDraft] = useState("");
   const [images, setImages] = useState<any[]>([]);
@@ -96,7 +97,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     if (!id) return;
     const tdata = await api.get(`/tasks/${id}`).then(r => r.data).catch(() => null);
     if (!tdata) return;
-    const [bdata, sdata, pdata, idata, vdata] = await Promise.all([
+    const [bdata, sdata, pdata, edata, idata, vdata] = await Promise.all([
       ["creative_brief_review", ...SCRIPT_AVAILABLE_STATES].includes(tdata.status)
         ? api.get(`/tasks/${id}/creative-brief`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
@@ -106,6 +107,9 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
       SHOT_PLAN_AVAILABLE_STATES.includes(tdata.status)
         ? api.get(`/tasks/${id}/shot-plan`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
+      ["composition_review", "done"].includes(tdata.status)
+        ? api.get(`/tasks/${id}/editing-blueprint`).then(r => r.data).catch(() => null)
+        : Promise.resolve(null),
       api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
       api.get(`/tasks/${id}/video-candidates`).then(r => r.data).catch(() => []),
     ]);
@@ -113,6 +117,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     setCreativeBrief(bdata);
     if (bdata) setCreativeBriefDraft(JSON.stringify(bdata.content, null, 2));
     setShotPlan(pdata);
+    setEditingBlueprint(edata);
     if (pdata) setShotPlanDraft(JSON.stringify(pdata.shots, null, 2));
     if (sdata) { setScript(sdata); setEditedContent(sdata.edited_content || sdata.content); }
     if (idata.length > 0) setImages(idata);
@@ -367,6 +372,14 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
       )}
 
+      {editingBlueprint && (
+        <div className="card mb-6">
+          <h3 className="mb-4">Editing Blueprint</h3>
+          <p className="text-secondary text-sm mb-4">Approved deterministic shot order, timing, transitions, subtitles, and audio markers.</p>
+          <pre style={{ whiteSpace: "pre-wrap", color: "var(--text-secondary)", background: "var(--bg)", padding: 16, borderRadius: "var(--radius)" }}>{JSON.stringify(editingBlueprint.entries, null, 2)}</pre>
+        </div>
+      )}
+
       {creativeBrief && creativeBrief.status === "pending_review" && (
         <div className="card mb-6">
           <h3 className="mb-4">Creative Brief</h3>
@@ -429,6 +442,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                   </div>
                 )}
                 <div className="image-status">{img.status.replace(/_/g, " ")}</div>
+                {img.generation_context?.keyframe_role && <div className="text-secondary text-sm">Shot {Number(img.generation_context.shot_index) + 1}, segment {Number(img.generation_context.segment_index) + 1} · {img.generation_context.keyframe_role} keyframe</div>}
                 {task.status === "image_review" && (
                   <div className="image-actions">
                     {img.status === "pending_review" && img.access_url && (

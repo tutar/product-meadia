@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.agents.promo_graph import build_promo_graph, clip_segments_for_shot_plan, promo_graph
+from src.agents.promo_graph import build_promo_graph, clip_segments_for_shot_plan, keyframes_for_segments, promo_graph
 
 
 @pytest.mark.asyncio
@@ -137,6 +137,17 @@ def test_long_shot_is_split_into_model_sized_clip_segments():
     segments = clip_segments_for_shot_plan([{"target_duration_seconds": 12, "image_prompt": "still", "video_motion_prompt": "move"}])
     assert [segment["target_duration_seconds"] for segment in segments] == [5, 5, 2]
     assert [(segment["shot_index"], segment["segment_index"]) for segment in segments] == [(0, 0), (0, 1), (0, 2)]
+
+
+def test_each_clip_segment_has_start_and_end_keyframes_for_the_selected_model():
+    segments = clip_segments_for_shot_plan([{"target_duration_seconds": 12, "image_prompt": "still", "video_motion_prompt": "move"}])
+
+    keyframes = keyframes_for_segments(segments)
+
+    assert len(keyframes) == 6
+    assert [(keyframe["segment_index"], keyframe["keyframe_role"]) for keyframe in keyframes] == [
+        (0, "start"), (0, "end"), (1, "start"), (1, "end"), (2, "start"), (2, "end"),
+    ]
 
 
 @pytest.mark.asyncio
