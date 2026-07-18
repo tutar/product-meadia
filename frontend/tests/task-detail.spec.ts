@@ -155,6 +155,30 @@ test("execution log localizes a known English summary for Chinese", async ({ pag
   await expect(log.getByText("Script generated (120 chars)", { exact: true })).toHaveCount(0);
 });
 
+test("execution log keeps legacy image feedback in the image-generation stage", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-image-log", route => route.fulfill({ json: {
+    id: "task-image-log", status: "image_review", type: "promo", image_count: 2,
+    progress_log: [
+      { attempt: 1, stage: "imaging", step: "generate_images", status: "completed", summary: "Images: 2 generated/reused" },
+      { attempt: 1, stage: "image", step: "review_feedback", status: "completed", summary: "Improvement guidance recorded for regeneration" },
+    ],
+  } }));
+  await page.route("**/api/v1/tasks/task-image-log/creative-brief", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-image-log/script", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-image-log/shot-plan", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-image-log/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-image-log/video-candidates", route => route.fulfill({ json: [] }));
+
+  await page.goto("/tasks/task-image-log");
+
+  const log = page.getByRole("region", { name: "Execution Log" });
+  await log.getByRole("button", { name: "Generate images" }).click();
+  await expect(log.getByText("Improvement guidance recorded for regeneration", { exact: true })).toBeVisible();
+  await expect(log.getByRole("button", { name: "image", exact: true })).toHaveCount(0);
+});
+
 test("regenerating one keyframe keeps other keyframes reviewable", async ({ page }) => {
   let regenerationStarted = false;
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));

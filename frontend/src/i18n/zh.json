@@ -154,6 +154,7 @@
       "generate_creative_brief": "生成创意简报",
       "wait_creative_brief_review": "等待创意简报审核",
       "generate_script": "生成脚本",
+      "review_feedback": "记录改进建议",
       "wait_script_review": "等待脚本审核",
       "wait_image_review": "等待图片审核",
       "wait_character_review": "等待角色审核",

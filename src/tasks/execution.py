@@ -29,6 +29,16 @@ NODE_TO_STAGE = {
     "composite": "compositing",
 }
 
+FEEDBACK_TARGET_TO_STAGE = {
+    "creative_brief": "planning",
+    "shot_plan": "planning",
+    "script": "scripting",
+    "image": "imaging",
+    "character": "character",
+    "video": "video_gen",
+    "composition": "compositing",
+}
+
 
 ExecutionReporter = Callable[[str], Awaitable[None]]
 _execution_reporter: ContextVar[ExecutionReporter | None] = ContextVar("execution_reporter", default=None)
@@ -50,6 +60,11 @@ def execution_stage(node_name: str | None) -> str:
     if node_name == "generate_character":
         return "character"
     return NODE_TO_STAGE.get(node_name or "", "other")
+
+
+def feedback_stage(target_type: str) -> str:
+    """Return the user-visible stage that owns a review feedback entry."""
+    return FEEDBACK_TARGET_TO_STAGE.get(target_type, "other")
 
 
 def execution_timing(started_at: str, finished_at: str) -> int:

@@ -39,13 +39,20 @@ const STAGE_FOR_STEP: Record<string, string> = {
   generate_tts_and_lipsync: "video_gen", composite_video: "compositing", composite: "compositing",
 };
 
+const LEGACY_FEEDBACK_STAGE: Record<string, string> = {
+  creative_brief: "planning", shot_plan: "planning", script: "scripting", image: "imaging",
+  character: "character", video: "video_gen", composition: "compositing",
+};
+
 type LogEntry = { attempt?: number; stage?: string; step: string; status: string; summary?: string; time?: string; started_at?: string; finished_at?: string; duration_ms?: number };
 
 function executionAttempts(log: LogEntry[]) {
   const attempts = new Map<number, Map<string, LogEntry[]>>();
   for (const entry of log) {
     const attempt = entry.attempt || 1;
-    const stage = entry.stage || STAGE_FOR_STEP[entry.step] || "other";
+    const stage = entry.step === "review_feedback"
+      ? LEGACY_FEEDBACK_STAGE[entry.stage || ""] || "other"
+      : entry.stage || STAGE_FOR_STEP[entry.step] || "other";
     if (!attempts.has(attempt)) attempts.set(attempt, new Map());
     const stages = attempts.get(attempt)!;
     if (!stages.has(stage)) stages.set(stage, []);

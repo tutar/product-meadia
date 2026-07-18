@@ -3,7 +3,7 @@ import inspect
 from sqlalchemy.pool import NullPool
 
 from src.tasks.execution import (
-    NodeExecutionError, execution_stage, execution_timing, reset_execution_reporter,
+    NodeExecutionError, execution_stage, execution_timing, feedback_stage, reset_execution_reporter,
     next_execution_attempt, review_status_for_node, safe_error_summary,
     set_execution_reporter, tracked_node,
 )
@@ -95,6 +95,13 @@ def test_workflow_nodes_have_user_visible_execution_stages():
     assert execution_stage("generate_tts_and_lipsync") == "video_gen"
     assert execution_stage("generate_character") == "character"
     assert execution_stage("unknown") == "other"
+
+
+def test_feedback_uses_the_same_user_visible_stage_as_its_reviewed_work():
+    assert feedback_stage("image") == "imaging"
+    assert feedback_stage("script") == "scripting"
+    assert feedback_stage("creative_brief") == "planning"
+    assert feedback_stage("shot_plan") == "planning"
 
 
 def test_execution_timing_reports_elapsed_milliseconds():
