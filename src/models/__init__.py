@@ -15,6 +15,7 @@ from src.models.category import Category, CategoryAttribute
 from src.models.main_image_candidate import MainImageCandidate
 from src.models.outbox_event import OutboxEvent
 from src.models.review_feedback import ReviewFeedback
+from src.models.generation_record import GenerationRecord
 
 __all__ = [
     "Base",
@@ -23,6 +24,7 @@ __all__ = [
     "CreativeBrief",
     "CategoryAttribute",
     "GeneratedImage",
+    "GenerationRecord",
     "MainImageCandidate",
     "OutboxEvent",
     "Product",

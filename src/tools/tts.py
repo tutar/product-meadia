@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 from src.config import settings
 from langfuse import observe
 from src.tools.retry import retry_async
+from src.tasks.generation_records import record_generation
 
 client = AsyncOpenAI(base_url=settings.litellm_base_url, api_key=settings.litellm_api_key)
 
@@ -80,8 +81,10 @@ async def generate_tts(text: str, *, target_duration_seconds: float | None = Non
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(audio)
         audio_path = f.name
-    return {
+    result = {
         "audio_url": audio_path,
         "words": [],
         "tts_duration_seconds": wav_duration_seconds(audio),
     }
+    await record_generation("litellm", "voxcpm2", {"voice": "default", "target_duration_seconds": target_duration_seconds}, {"text": text}, {"tts_duration_seconds": result["tts_duration_seconds"]}, {"model": "voxcpm2", "input": text, "voice": "default"})
+    return result

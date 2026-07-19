@@ -28,5 +28,6 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     editing_blueprint = relationship("EditingBlueprint", back_populates="task", uselist=False)
     images = relationship("GeneratedImage", back_populates="task")
     video_candidates = relationship("VideoCandidate", back_populates="task")
+    generation_records = relationship("GenerationRecord", back_populates="task", passive_deletes=True)
     viral_analysis = relationship("ViralAnalysis", back_populates="task", uselist=False)
     result_video_asset = relationship("MediaAsset", foreign_keys=[result_video_asset_id])

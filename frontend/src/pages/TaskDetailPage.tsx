@@ -101,6 +101,9 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const viewerDragRef = useRef<{ x: number; y: number } | null>(null);
   const [videoViewerIds, setVideoViewerIds] = useState<string[] | null>(null);
   const [videoViewerIndex, setVideoViewerIndex] = useState<number | null>(null);
+  const [generationStage, setGenerationStage] = useState<string | null>(null);
+  const [generationRecords, setGenerationRecords] = useState<any[]>([]);
+  const [selectedGenerationRecord, setSelectedGenerationRecord] = useState<any>(null);
   const videoViewerRef = useRef<HTMLVideoElement | null>(null);
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
@@ -271,6 +274,14 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     await runAction(`video:${candidateId}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidateId}/regenerate`, { feedback: suggestion }); await fetchData(); });
   };
 
+  const openGenerationMaterials = async (stage: string) => {
+    if (!id) return;
+    const records = await api.get(`/tasks/${id}/generation-records`, { params: { stage } }).then(response => response.data).catch(() => []);
+    setGenerationStage(stage);
+    setGenerationRecords(records);
+    setSelectedGenerationRecord(records[0] || null);
+  };
+
   const openFeedback = (title: string, submit: (suggestion: string) => Promise<void>) => {
     setFeedback("");
     setFeedbackDialog({ title, submit });
@@ -389,7 +400,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                 const stageDefault = false;
                 const stageOpen = expanded[stageKey] ?? stageDefault;
                 return <div key={stageKey} style={{ margin: "8px 0 0 14px", borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => toggle(stageKey, stageDefault)} aria-expanded={stageOpen}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { toggle(stageKey, stageDefault); void openGenerationMaterials(stage); }} aria-expanded={stageOpen}>
                     {stageOpen ? "▾" : "▸"} {t(`execution.stages.${stage}`, stage.replace(/_/g, " "))}
                   </button>
                   {stageOpen && entries.map((entry, i) => <div key={`${entry.step}:${i}`} style={{ display: "flex", gap: 12, padding: "8px 0", fontSize: "0.82rem" }}>
@@ -406,6 +417,29 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
             </div>;
           })}
         </section>
+      )}
+
+      {generationStage && (
+        <div className="generation-materials-backdrop" role="presentation" onMouseDown={() => setGenerationStage(null)}>
+          <aside className="generation-materials-panel" role="dialog" aria-label={t("generationMaterials.title")} aria-modal="true" onMouseDown={event => event.stopPropagation()}>
+            <header className="generation-materials-header">
+              <div><span className="eyebrow">{t("generationMaterials.eyebrow")}</span><h2>{t("generationMaterials.title")}</h2><p>{t(`execution.stages.${generationStage}`, generationStage)}</p></div>
+              <button className="btn btn-ghost btn-sm" aria-label={t("generationMaterials.close")} onClick={() => setGenerationStage(null)}>×</button>
+            </header>
+            {generationRecords.length === 0 ? <p className="generation-materials-empty">{t("generationMaterials.empty")}</p> : <div className="generation-materials-layout">
+              <nav className="generation-materials-history" aria-label={t("generationMaterials.history")}>
+                {generationRecords.map(record => <button key={record.id} className={selectedGenerationRecord?.id === record.id ? "is-selected" : ""} onClick={() => setSelectedGenerationRecord(record)}><span>{t("generationMaterials.attempt", { number: record.attempt })}</span><small>{record.model}</small></button>)}
+              </nav>
+              {selectedGenerationRecord && <article className="generation-materials-content">
+                <section><h3>{t("generationMaterials.overview")}</h3><dl><div><dt>{t("generationMaterials.provider")}</dt><dd>{selectedGenerationRecord.provider} / {selectedGenerationRecord.model}</dd></div><div><dt>{t("generationMaterials.substep")}</dt><dd>{nodeLabel(selectedGenerationRecord.substep)}</dd></div><div><dt>{t("generationMaterials.provenance")}</dt><dd>{selectedGenerationRecord.provenance?.workflow_commit || "—"}</dd></div></dl></section>
+                <section><h3>{t("generationMaterials.input")}</h3><pre>{JSON.stringify(selectedGenerationRecord.normalized_input, null, 2)}</pre></section>
+                <section><h3>{t("generationMaterials.output")}</h3><pre>{JSON.stringify(selectedGenerationRecord.normalized_output, null, 2)}</pre></section>
+                {selectedGenerationRecord.media_asset_ids?.length > 0 && <section><h3>{t("generationMaterials.mediaAssets")}</h3><ul className="generation-material-refs">{selectedGenerationRecord.media_asset_ids.map((assetId: string) => <li key={assetId}><code>{assetId}</code></li>)}</ul></section>}
+                <section><h3>{t("generationMaterials.payload")}</h3><pre>{JSON.stringify(selectedGenerationRecord.provider_payload, null, 2)}</pre></section>
+              </article>}
+            </div>}
+          </aside>
+        </div>
       )}
 
       {task.error_message && (

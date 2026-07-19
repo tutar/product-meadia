@@ -2,6 +2,7 @@ import asyncio
 import tempfile
 import os
 from langfuse import observe
+from src.tasks.generation_records import record_generation
 
 
 @observe(name="render_hyperframes")
@@ -29,4 +30,10 @@ async def render_hyperframes(html_content: str) -> str:
 
     if proc.returncode != 0:
         raise RuntimeError(f"HyperFrames render failed: {stderr.decode()}")
+    await record_generation(
+        "hyperframes", "hyperframes-renderer", {},
+        {"composition": "promo-video", "html_length": len(html_content)},
+        {"result": "final composition rendered"},
+        {"composition": "promo-video", "html_length": len(html_content)},
+    )
     return output_path
