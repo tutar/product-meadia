@@ -90,6 +90,18 @@ _Avoid_: Graph node, pipeline step
 An observable unit of work or human-review wait within an Execution Stage, with a lifecycle, timing, and safe output or error summary.
 _Avoid_: Internal node, log line
 
+**Generation Record**:
+An immutable, task-owned audit record for one model or renderer invocation. It links the Execution Substep to its normalized input, parameters, normalized output, and referenced Media Assets, while excluding credentials and transient access URLs.
+_Avoid_: Execution log entry, raw HTTP trace, provider request log
+
+**Normalized Generation Input and Output**:
+The stable, provider-independent prompt, parameters, structured result, and Media Asset references retained in a Generation Record for inspection and dataset export. A separately retained sanitized Provider Payload Snapshot preserves the provider-specific JSON shape for diagnosis.
+_Avoid_: Raw HTTP request, raw provider response, training export format
+
+**Training Candidate**:
+A Generation Record whose output has passed the relevant human review and is eligible for explicit training-dataset export. Rejected or regenerated records remain retained as negative examples with their improvement feedback, but are not positive candidates by default.
+_Avoid_: All generated output, automatically exported training row
+
 **Auto-Approval Preference**:
 A User-owned setting that automatically approves newly completed Script or Image Candidates at their review point. It never advances a candidate that was already waiting for review when the setting changed.
 _Avoid_: Task default, retroactive approval
