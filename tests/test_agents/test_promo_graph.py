@@ -151,6 +151,33 @@ def test_each_clip_segment_has_start_and_end_keyframes_for_the_selected_model():
 
 
 @pytest.mark.asyncio
+async def test_promo_composition_keeps_clip_windows_at_their_planned_duration_when_tts_is_slow():
+    state = {
+        "task_id": "timing", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}},
+        "creative_brief": {"core_promise": "test"}, "creative_brief_approved": True,
+        "script_content": "script", "edited_script_content": "", "image_prompts": ["prompt"], "voiceover_text": "short narration",
+        "shot_plan": [{"target_duration_seconds": 5, "voiceover_text": "short narration"}], "shot_plan_approved": True,
+        "generated_images": [
+            {"image_url": "https://image-start", "status": "approved", "shot_index": 0, "segment_index": 0, "keyframe_role": "start"},
+            {"image_url": "https://image-end", "status": "approved", "shot_index": 0, "segment_index": 0, "keyframe_role": "end"},
+        ],
+        "video_clips": ["https://clip"], "tts_audio_url": "", "tts_duration_seconds": 0, "tts_words": [],
+        "lipsync_video_url": "", "character_image_url": "", "viral_url": "", "viral_analysis": {}, "hyperframes_html": "", "final_video_path": "",
+        "script_approved": True, "images_approved": True, "character_approved": False, "review_approved": False,
+        "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
+    }
+    with patch("src.agents.promo_graph.generate_tts", new_callable=AsyncMock) as tts, patch("src.agents.promo_graph.render_hyperframes", new_callable=AsyncMock) as render:
+        tts.return_value = {"audio_url": "https://audio", "words": [], "tts_duration_seconds": 46.4}
+        render.return_value = "/tmp/final.mp4"
+        async for _ in build_promo_graph(interrupt_before=[]).astream(state, {"configurable": {"thread_id": "timing"}}):
+            pass
+    assert tts.await_args.kwargs["target_duration_seconds"] == 5
+    assert 'data-duration="5.0" data-track-index="0"' in render.await_args.args[0]
+    assert 'data-duration="46.4" data-track-index="0"' not in render.await_args.args[0]
+
+
+@pytest.mark.asyncio
 async def test_promo_images_use_product_main_image_as_data_uri_reference():
     graph = build_promo_graph(interrupt_before=["wait_image_review"])
     reference_image = "data:image/png;base64,cHJvZHVjdA=="
@@ -225,7 +252,7 @@ async def test_reused_video_clips_are_marked_so_the_worker_can_continue_after_re
     reused_output = next(event["generate_video_clips"] for event in events if "generate_video_clips" in event)
     assert reused_output["video_clips_reused"] is True
     html = render.await_args.args[0]
-    assert 'data-duration="12.5"' in html
+    assert 'data-duration="5.0"' in html
     assert html.count('<video id="clip-') == 1
 
 

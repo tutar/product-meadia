@@ -438,7 +438,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
 
       {task.status === "composition_review" && currentClipCandidates.length > 0 && (
         <section className="card mb-6 media-video-review" aria-label={t("task.approvedShotSegments")}><h3 className="mb-4">{t("task.approvedShotSegments")}</h3><div className="video-review-grid">
-          {currentClipCandidates.map((candidate, index) => <article key={candidate.id} className="video-review-card">{candidate.access_url && <div className="video-preview-frame"><video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} /><button type="button" className="video-preview-play" aria-label={t("task.videoClip", { number: index + 1 })} onClick={() => playVideoPreview(candidate.id)}>▶</button><button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(currentClipCandidates, candidate.id)}>⛶</button></div>}</article>)}
+          {currentClipCandidates.map((candidate, index) => <article key={candidate.id} className="video-review-card">{candidate.access_url && <div className="video-preview-frame"><video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} controls muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} /><button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(currentClipCandidates, candidate.id)}>⛶</button></div>}</article>)}
         </div></section>
       )}
       {reviewCandidates.length > 0 && (
@@ -448,8 +448,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
           {reviewCandidates.map((candidate, index) => (
             <article key={candidate.id} className="video-review-card">
               {candidate.access_url && <div className="video-preview-frame">
-                <video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} />
-                <button type="button" className="video-preview-play" aria-label={t("task.videoClip", { number: index + 1 })} onClick={() => playVideoPreview(candidate.id)}>▶</button>
+                <video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} controls muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} />
                 <button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(reviewCandidates, candidate.id)}>⛶</button>
               </div>}
               <div className="video-review-actions">
