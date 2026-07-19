@@ -20,10 +20,12 @@ from src.models.video_candidate import VideoCandidate
 from src.models.review_feedback import ReviewFeedback
 from src.models.viral_analysis import ViralAnalysis
 from src.models.media_asset import MediaAsset
+from src.models.generation_record import GenerationRecord
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate, CreativeBriefResponse, CreativeBriefUpdate,
     ShotPlanResponse, ShotPlanUpdate, EditingBlueprintResponse,
     ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
+    GenerationRecordResponse, GenerationRecordExportRequest,
 )
 from src.auth.deps import get_current_user
 from src.tasks.execution import feedback_stage, stage_for_node
@@ -48,6 +50,32 @@ async def owned_task(db, user, task_id):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+SENSITIVE_GENERATION_PAYLOAD_KEYS = ("authorization", "api_key", "token", "secret", "password", "url", "data_uri")
+
+
+def sanitized_provider_payload(payload):
+    """Keep provider request shape without retaining credentials or transient media access."""
+    if isinstance(payload, list):
+        return [sanitized_provider_payload(value) for value in payload]
+    if not isinstance(payload, dict):
+        return payload
+    return {
+        key: sanitized_provider_payload(value)
+        for key, value in payload.items()
+        if not any(sensitive in key.lower() for sensitive in SENSITIVE_GENERATION_PAYLOAD_KEYS)
+    }
+
+
+async def mark_latest_training_candidate(db: AsyncSession, task_id: UUID, stage: str, outcome: str) -> None:
+    """Preserve review signal without promoting rejected generations to training data."""
+    record = await db.scalar(select(GenerationRecord).where(
+        GenerationRecord.task_id == task_id,
+        GenerationRecord.stage == stage,
+    ).order_by(GenerationRecord.attempt.desc(), GenerationRecord.created_at.desc()).limit(1))
+    if record:
+        record.training_candidate = outcome
 
 
 @router.post("/{task_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
@@ -208,6 +236,44 @@ async def get_task(
     return task
 
 
+@router.get("/{task_id}/generation-records", response_model=list[GenerationRecordResponse])
+async def list_generation_records(
+    task_id: UUID,
+    stage: str | None = None,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    await owned_task(db, user, task_id)
+    query = select(GenerationRecord).where(GenerationRecord.task_id == task_id)
+    if stage:
+        query = query.where(GenerationRecord.stage == stage)
+    records = (await db.scalars(query.order_by(GenerationRecord.attempt.desc(), GenerationRecord.created_at.desc(), GenerationRecord.id.desc()))).all()
+    for record in records:
+        record.provider_payload = sanitized_provider_payload(record.provider_payload)
+        record.media_asset_ids = [str(asset_id) for asset_id in record.media_asset_ids]
+    return records
+
+
+@router.post("/{task_id}/generation-records/export", response_model=list[GenerationRecordResponse])
+async def export_generation_records(
+    task_id: UUID,
+    body: GenerationRecordExportRequest,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    """Return only owner-selected positive Training Candidates for dataset tooling."""
+    await owned_task(db, user, task_id)
+    records = (await db.scalars(select(GenerationRecord).where(
+        GenerationRecord.task_id == task_id,
+        GenerationRecord.id.in_(body.record_ids),
+        GenerationRecord.training_candidate == "approved",
+    ).order_by(GenerationRecord.created_at))).all()
+    for record in records:
+        record.provider_payload = sanitized_provider_payload(record.provider_payload)
+        record.media_asset_ids = [str(asset_id) for asset_id in record.media_asset_ids]
+    return records
+
+
 @router.get("/{task_id}/script", response_model=ScriptResponse)
 async def get_script(
     task_id: UUID,
@@ -247,11 +313,13 @@ async def update_creative_brief(
     if body.approved:
         brief.status = "approved"
         task.status = "scripting"
+        await mark_latest_training_candidate(db, task_id, "planning", "approved")
     else:
         record_feedback(db, task, "creative_brief", brief.id, validated_feedback(body.feedback))
         brief.content = {}
         brief.status = "rejected"
         task.status = "planning"
+        await mark_latest_training_candidate(db, task_id, "planning", "negative")
     await db.commit()
     from src.tasks.video_tasks import run_video_task
     run_video_task.delay(str(task_id))
@@ -283,11 +351,13 @@ async def update_shot_plan(
     if body.approved:
         plan.status = "approved"
         task.status = "imaging"
+        await mark_latest_training_candidate(db, task_id, "planning", "approved")
     else:
         record_feedback(db, task, "shot_plan", plan.id, validated_feedback(body.feedback))
         plan.shots = []
         plan.status = "rejected"
         task.status = "planning"
+        await mark_latest_training_candidate(db, task_id, "planning", "negative")
     await db.commit()
     from src.tasks.video_tasks import run_video_task
     run_video_task.delay(str(task_id))
@@ -315,6 +385,7 @@ async def update_script(
     if body.approved:
         script.status = "approved"
         task.status = "planning"
+        await mark_latest_training_candidate(db, task_id, "scripting", "approved")
         await db.commit()
         await db.refresh(script)
         # Resume the graph
@@ -324,6 +395,7 @@ async def update_script(
         record_feedback(db, task, "script", script.id, validated_feedback(body.feedback))
         script.status = "rejected"
         task.status = "scripting"
+        await mark_latest_training_candidate(db, task_id, "scripting", "negative")
         await db.commit()
         await db.refresh(script)
         from src.tasks.video_tasks import run_video_task
@@ -373,6 +445,7 @@ async def review_image(
     if body.action not in ("approve", "reject"):
         raise HTTPException(status_code=422, detail="Unsupported image review action")
     img.status = "approved" if body.action == "approve" else "rejected"
+    await mark_latest_training_candidate(db, task_id, "imaging", "approved" if body.action == "approve" else "negative")
     if body.action == "reject":
         record_feedback(db, task, "image", img.id, validated_feedback(body.feedback))
     await db.commit()
@@ -412,6 +485,7 @@ async def regenerate_image(
         raise HTTPException(status_code=404, detail="Image not found")
     record_feedback(db, task, "image", img.id, validated_feedback(body.feedback))
     img.status = "rejected"
+    await mark_latest_training_candidate(db, task_id, "imaging", "negative")
     img.image_url = None
     task.status = "imaging"
     await db.commit()
@@ -441,10 +515,12 @@ async def review_character(
     if body.action == "approve":
         character.status = "approved"
         task.status = "scripting"
+        await mark_latest_training_candidate(db, task_id, "character", "approved")
     else:
         character.status = "rejected"
         record_feedback(db, task, "character", character.id, validated_feedback(body.feedback))
         task.status = "scripting"
+        await mark_latest_training_candidate(db, task_id, "character", "negative")
     await db.commit()
     from src.tasks.video_tasks import run_video_task
     run_video_task.delay(str(task_id))
@@ -476,6 +552,7 @@ async def review_video_candidate(task_id: UUID, candidate_id: UUID, body: Candid
     if body.action not in ("approve", "reject"):
         raise HTTPException(status_code=422, detail="Unsupported video review action")
     candidate.status = "approved" if body.action == "approve" else "rejected"
+    await mark_latest_training_candidate(db, task_id, "compositing" if candidate.kind == "composition" else "video_gen", "approved" if body.action == "approve" else "negative")
     if body.action == "reject":
         record_feedback(db, task, "composition" if candidate.kind == "composition" else "video_clip", candidate.id, validated_feedback(body.feedback))
     if candidate.kind == "composition" and body.action == "approve":
@@ -503,6 +580,7 @@ async def regenerate_video_candidate(task_id: UUID, candidate_id: UUID, body: Re
     record_feedback(db, task, "composition" if candidate.kind == "composition" else "video_clip", candidate.id, validated_feedback(body.feedback))
     candidate.status = "rejected"
     candidate.is_current = False
+    await mark_latest_training_candidate(db, task_id, "compositing" if candidate.kind == "composition" else "video_gen", "negative")
     task.status = "compositing" if candidate.kind == "composition" else "video_gen"
     await db.commit()
     from src.tasks.video_tasks import run_video_task

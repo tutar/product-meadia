@@ -122,6 +122,30 @@ class ViralAnalysisResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class GenerationRecordResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    stage: str
+    substep: str
+    attempt: int
+    provider: str
+    model: str
+    parameters: dict
+    normalized_input: dict
+    normalized_output: dict
+    provider_payload: dict
+    media_asset_ids: list[str]
+    provenance: dict
+    training_candidate: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class GenerationRecordExportRequest(BaseModel):
+    record_ids: list[UUID]
+
+
 class TaskResponse(BaseModel):
     id: UUID
     product_id: UUID | None

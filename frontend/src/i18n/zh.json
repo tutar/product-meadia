@@ -153,6 +153,22 @@
     "loading": "加载中..."
     ,"cancel":"取消任务","delete":"删除任务","cancelConfirm":"确认取消任务？当前远程步骤可能完成，但不会启动后续步骤。","deleteConfirm":"确认删除任务？任务将立即消失，专属媒体将在 7 天后清理。"
   },
+  "generationMaterials": {
+    "eyebrow": "生成溯源",
+    "title": "生成资料",
+    "close": "关闭生成资料",
+    "empty": "此阶段没有已留存的生成资料。",
+    "history": "生成历史",
+    "attempt": "第 {{number}} 次",
+    "overview": "概览",
+    "provider": "提供方",
+    "substep": "执行子步骤",
+    "provenance": "工作流版本",
+    "input": "规范化输入",
+    "output": "规范化输出",
+    "mediaAssets": "媒体资产",
+    "payload": "已脱敏 API 请求"
+  },
   "execution": {
     "title": "执行日志",
     "stepsCount": "步",

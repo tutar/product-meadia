@@ -153,6 +153,22 @@
     "loading": "Loading..."
     ,"cancel":"Cancel task","delete":"Delete task","cancelConfirm":"Cancel this task? The current remote step may finish, but no downstream steps will start.","deleteConfirm":"Delete this task? It disappears immediately; task-exclusive media is cleaned up after seven days."
   },
+  "generationMaterials": {
+    "eyebrow": "Generation trace",
+    "title": "Generation materials",
+    "close": "Close generation materials",
+    "empty": "No retained generation materials exist for this stage.",
+    "history": "Generation history",
+    "attempt": "Attempt {{number}}",
+    "overview": "Overview",
+    "provider": "Provider",
+    "substep": "Substep",
+    "provenance": "Workflow revision",
+    "input": "Normalized input",
+    "output": "Normalized output",
+    "mediaAssets": "Media Assets",
+    "payload": "Sanitized API payload"
+  },
   "execution": {
     "title": "Execution Log",
     "stepsCount": "steps",

@@ -7,6 +7,7 @@ from src.tasks.execution import (
     next_execution_attempt, review_status_for_node, safe_error_summary,
     set_execution_reporter, tracked_node,
 )
+from src.tasks.generation_records import record_generation, reset_generation_recorder, set_generation_recorder
 
 
 @pytest.mark.asyncio
@@ -58,6 +59,22 @@ async def test_tracked_node_does_not_report_a_skipped_substep():
         reset_execution_reporter(token)
 
     assert started == []
+
+
+@pytest.mark.asyncio
+async def test_generation_recorder_only_records_while_a_workflow_scope_is_active():
+    recorded = []
+
+    async def recorder(*args):
+        recorded.append(args)
+
+    token = set_generation_recorder(recorder)
+    try:
+        await record_generation("litellm", "scriptwriter", {}, {"user": "brief"}, {"content": "result"}, {})
+    finally:
+        reset_generation_recorder(token)
+
+    assert recorded[0][0:2] == ("litellm", "scriptwriter")
 
 
 async def _result(value):

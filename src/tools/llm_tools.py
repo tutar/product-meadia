@@ -1,8 +1,10 @@
 import json
+import hashlib
 from openai import AsyncOpenAI
 from src.config import settings
 from langfuse import observe
 from src.tools.retry import retry_async
+from src.tasks.generation_records import record_generation
 
 client = AsyncOpenAI(base_url=settings.litellm_base_url, api_key=settings.litellm_api_key)
 
@@ -18,7 +20,9 @@ async def llm_chat(model: str, system_prompt: str, user_message: str, temperatur
         ],
         temperature=temperature,
     )
-    return resp.choices[0].message.content
+    content = resp.choices[0].message.content or ""
+    await record_generation("litellm", model, {"temperature": temperature, "prompt_template_hash": hashlib.sha256(system_prompt.encode()).hexdigest()}, {"system": system_prompt, "user": user_message}, {"content": content}, {"model": model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}], "temperature": temperature})
+    return content
 
 
 @observe(name="analyze_video_structure")

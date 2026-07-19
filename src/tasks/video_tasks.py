@@ -25,6 +25,9 @@ from src.tasks.execution import (
     next_execution_attempt, reset_execution_reporter, review_status_for_node,
     safe_error_summary, set_execution_reporter, stage_for_node,
 )
+from src.tasks.generation_records import generation_substep, reset_generation_recorder, set_generation_recorder
+from src.models.generation_record import GenerationRecord
+from src.models.media_asset import MediaAsset
 
 # Celery invokes each task through asyncio.run(), creating a new event loop.
 # Asyncpg connections cannot move between those loops, so this worker must not
@@ -98,6 +101,7 @@ async def _async_run(task_id: str, celery_task_id: str):
     attempt_number = 1
     node_started_at = _dt.datetime.utcnow()
     reporter_token = None
+    generation_recorder_token = None
     try:
         async with SessionLocal() as db:
             result = await db.execute(select(VideoTask).where(VideoTask.id == task_id))
@@ -312,6 +316,31 @@ async def _async_run(task_id: str, celery_task_id: str):
                 await db.commit()
             await progress_manager.send_progress(task_id, {"status": execution_stage(node_name)})
 
+        async def persist_generation_record(provider, model, parameters, normalized_input, normalized_output, provider_payload):
+            substep = generation_substep()
+            if not substep:
+                return
+            async with SessionLocal() as record_db:
+                task_snapshot = await record_db.scalar(select(VideoTask.product_snapshot).where(VideoTask.id == task_id))
+                input_asset_ids = [asset_id for asset_id in [
+                    (task_snapshot or {}).get("main_image_asset_id"),
+                    *((task_snapshot or {}).get("packaging_image_asset_ids") or []),
+                ] if asset_id]
+                assets = (await record_db.scalars(select(MediaAsset).where(MediaAsset.id.in_(input_asset_ids)))).all() if input_asset_ids else []
+                normalized_input = {
+                    **normalized_input,
+                    "media_assets": [{"id": str(asset.id), "checksum": asset.checksum} for asset in assets],
+                }
+                record_db.add(GenerationRecord(
+                    task_id=task_id, stage=execution_stage(substep), substep=substep,
+                    attempt=attempt_number, provider=provider, model=model, parameters=parameters,
+                    normalized_input=normalized_input, normalized_output=normalized_output,
+                    provider_payload=provider_payload,
+                    provenance={"workflow_commit": settings.git_commit, "prompt_template_hash": parameters.get("prompt_template_hash")},
+                ))
+                await record_db.commit()
+
+        generation_recorder_token = set_generation_recorder(persist_generation_record)
         reporter_token = set_execution_reporter(record_substep_start)
         node_started_at = _dt.datetime.utcnow()
         async for event in stream:
@@ -349,6 +378,8 @@ async def _async_run(task_id: str, celery_task_id: str):
                             run_video_task.delay(task_id)
                             reset_execution_reporter(reporter_token)
                             reporter_token = None
+                            reset_generation_recorder(generation_recorder_token)
+                            generation_recorder_token = None
                             return
                         t.status = next_review
                         wait_entry = {
@@ -447,6 +478,8 @@ async def _async_run(task_id: str, celery_task_id: str):
         await progress_manager.send_progress(task_id, {"status": "done", "video_url": final_video})
         reset_execution_reporter(reporter_token)
         reporter_token = None
+        reset_generation_recorder(generation_recorder_token)
+        generation_recorder_token = None
 
     except TaskCancellationRequested:
         async with SessionLocal() as db:
@@ -460,6 +493,9 @@ async def _async_run(task_id: str, celery_task_id: str):
         if reporter_token is not None:
             reset_execution_reporter(reporter_token)
             reporter_token = None
+        if generation_recorder_token is not None:
+            reset_generation_recorder(generation_recorder_token)
+            generation_recorder_token = None
         failed_node = e.node_name if isinstance(e, NodeExecutionError) else last_node or "unknown"
         root_error = e.__cause__ if isinstance(e, NodeExecutionError) and e.__cause__ else e
         error_entry = {
@@ -708,3 +744,34 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 t.result_video_url = None
                 t.status = "composition_review"
                 await db.commit()
+
+        # Persistent Media is linked by durable asset identity only.  The
+        # corresponding provider or access URLs never enter a Generation Record.
+        media_asset_ids = []
+        if node_name == "generate_images":
+            media_asset_ids = [str(asset_id) for asset_id in await db.scalars(
+                select(GeneratedImage.asset_id).where(
+                    GeneratedImage.task_id == task_id,
+                    GeneratedImage.asset_id.is_not(None),
+                )
+            )]
+        elif node_name == "generate_video_clips":
+            media_asset_ids = [str(asset_id) for asset_id in await db.scalars(
+                select(VideoCandidate.asset_id).where(
+                    VideoCandidate.task_id == task_id,
+                    VideoCandidate.kind == "clip",
+                    VideoCandidate.asset_id.is_not(None),
+                )
+            )]
+        elif output.get("tts_audio_asset_id"):
+            media_asset_ids = [str(output["tts_audio_asset_id"])]
+        elif output.get("final_video_asset_id"):
+            media_asset_ids = [str(output["final_video_asset_id"])]
+        if media_asset_ids:
+            records = (await db.scalars(select(GenerationRecord).where(
+                GenerationRecord.task_id == task_id,
+                GenerationRecord.substep == node_name,
+            ).order_by(GenerationRecord.created_at.desc()))).all()
+            for record in records:
+                record.media_asset_ids = media_asset_ids
+            await db.commit()

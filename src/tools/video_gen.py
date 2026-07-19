@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import httpx
 from src.config import settings
 from langfuse import observe
+from src.tasks.generation_records import record_generation
 
 HEADERS = {
     "Authorization": f"Bearer {settings.litellm_api_key}",
@@ -95,6 +96,13 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None) -> st
                 vresp.raise_for_status()
                 with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
                     f.write(vresp.content)
+                    await record_generation(
+                        "litellm", SELECTED_VIDEO_MODEL.model,
+                        {"width": 1152, "height": 768, "num_frames": 121, "frame_rate": 24},
+                        {"prompt": prompt, "keyframe_count": len(image_urls or [])},
+                        {"result": "video generated"},
+                        {"model": SELECTED_VIDEO_MODEL.model, "prompt": prompt, "keyframe_count": len(image_urls or []), "mode": payload.get("mode")},
+                    )
                     return f.name
             if data["status"] == "failed":
                 raise RuntimeError(f"Video generation failed: {data.get('error')}")

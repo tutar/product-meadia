@@ -57,6 +57,36 @@ test("task detail keeps every execution attempt collapsed by default", async ({ 
   await expect(log.getByRole("button", { name: /writing script|撰写脚本/i }).first()).toHaveAttribute("aria-expanded", "false");
 });
 
+test("completed stage opens generation materials with the latest record", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-materials", route => route.fulfill({ json: {
+    id: "task-materials", status: "script_review", type: "promo", image_count: 1,
+    progress_log: [{ attempt: 1, stage: "planning", step: "generate_creative_brief", status: "completed" }],
+  } }));
+  await page.route("**/api/v1/tasks/task-materials/creative-brief", route => route.fulfill({ json: { id: "brief", task_id: "task-materials", content: {}, status: "approved" } }));
+  await page.route("**/api/v1/tasks/task-materials/script", route => route.fulfill({ json: { id: "script", task_id: "task-materials", content: "Script", image_prompts: [], voiceover_text: "Script", status: "pending_review" } }));
+  await page.route("**/api/v1/tasks/task-materials/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-materials/video-candidates", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-materials/generation-records**", route => route.fulfill({ json: [{
+    id: "record-new", task_id: "task-materials", stage: "planning", substep: "generate_creative_brief", attempt: 2,
+    provider: "litellm", model: "scriptwriter", parameters: { temperature: 0.4 },
+    normalized_input: { user: "Cedar candle" }, normalized_output: { creative_brief: { core_promise: "Slow ritual" } },
+    provider_payload: { messages: [] }, media_asset_ids: ["asset-brief-1"], provenance: { workflow_commit: "def456" }, training_candidate: "pending_review", created_at: "2026-07-19T10:00:00Z",
+  }] }));
+
+  await page.goto("/tasks/task-materials");
+  const log = page.getByRole("region", { name: "Execution Log" });
+  await log.getByRole("button", { name: "Attempt 1" }).click();
+  await log.getByRole("button", { name: "Planning" }).click();
+
+  const materials = page.getByRole("dialog", { name: "Generation materials" });
+  await expect(materials).toBeVisible();
+  await expect(materials.getByText("Slow ritual")).toBeVisible();
+  await expect(materials.getByText("Cedar candle")).toBeVisible();
+  await expect(materials.getByText("asset-brief-1")).toBeVisible();
+});
+
 test("promo workspace reviews an ordered Shot Plan before generating keyframes", async ({ page }) => {
   let planApproved = false;
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));

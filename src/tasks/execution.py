@@ -3,6 +3,7 @@ from contextvars import ContextVar, Token
 from datetime import datetime
 from functools import wraps
 from typing import Any
+from src.tasks.generation_records import reset_generation_substep, set_generation_substep
 
 
 ARTIFACT_STATE_KEYS = (
@@ -110,6 +111,7 @@ def tracked_node(
 ):
     @wraps(node)
     async def wrapped(state):
+        generation_token = set_generation_substep(node_name)
         try:
             reporter = _execution_reporter.get()
             if reporter and (should_report is None or should_report(state)):
@@ -119,6 +121,8 @@ def tracked_node(
             raise
         except Exception as exc:
             raise NodeExecutionError(node_name, exc) from exc
+        finally:
+            reset_generation_substep(generation_token)
 
     return wrapped
 
