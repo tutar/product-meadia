@@ -102,6 +102,50 @@ _Avoid_: Raw HTTP request, raw provider response, training export format
 A Generation Record whose output has passed the relevant human review and is eligible for explicit training-dataset export. Rejected or regenerated records remain retained as negative examples with their improvement feedback, but are not positive candidates by default.
 _Avoid_: All generated output, automatically exported training row
 
+**Model Configuration**:
+A User-owned configuration of one available model through a provider, including its credential reference, declared capabilities, and availability. It is designed to become Tenant-owned when multi-tenant ownership is introduced, without changing the model selections frozen by existing Video Tasks.
+_Avoid_: Global model setting, task credential, provider secret
+
+**Bring Your Own Key (BYOK)**:
+The User-owned credential used by a Model Configuration to call its provider. It is encrypted at rest, decrypted only by the server for a provider invocation, and never returned to the client or persisted in task data, logs, or Generation Records. A platform default may be used when the User has not selected a BYOK configuration.
+_Avoid_: Exposed API key, task API key, provider key in a prompt
+
+**Stage Model Selection**:
+The Video Task-owned, capability-compatible Model Configuration selected for one execution stage. It is frozen when the task is created and may be changed only before that stage begins; a change after output exists takes effect only through an explicit regeneration, which creates a new candidate and Generation Record.
+_Avoid_: Global active model, retroactive model change, mutable generation provenance
+
+**Provider Model Catalog**:
+The platform-maintained catalog of provider model identities and their declared generation capabilities and constraints. A User may enable a catalog entry through a Model Configuration, but cannot make an incompatible model eligible for an execution stage. Custom compatible models, if introduced, are explicitly experimental and declare their capabilities before use.
+_Avoid_: Unverified model name, user-claimed production capability, global provider configuration
+
+**Model Selection Stage**:
+A user-meaningful generation category with its own Stage Model Selection: creative planning, scriptwriting, keyframe image generation, clip video generation, voice generation, or (for viral tasks) source analysis/transcription. Deterministic final composition is not a model selection stage; its optional text optimization uses the creative-planning selection.
+_Avoid_: Internal function model setting, renderer model choice
+
+**Model Availability Failure**:
+The condition in which the Model Configuration frozen for a stage cannot serve its requested operation, such as invalid credentials, exhausted quota, provider outage, or model withdrawal. The task may retry the same configuration but must never silently switch models; it waits for the User to select a replacement and explicitly retry.
+_Avoid_: Silent fallback, hidden model substitution, unexplained quality change
+
+**Model Verification**:
+The explicit, low-cost check that a User's Model Configuration can authenticate and reach its declared Provider Model Catalog entry. Only a verified, capability-compatible configuration is selectable for a task stage; where safe verification is unavailable, its first real invocation determines availability.
+_Avoid_: Test generation, assumed-valid credential, selectable unverified model
+
+**Model Invocation Boundary**:
+The application service boundary that invokes every business model through the LiteLLM Python SDK using the task's frozen Stage Model Selection and a transiently decrypted BYOK or platform-default credential. A local LiteLLM proxy is not a required business routing boundary.
+_Avoid_: Per-tool provider client, global proxy-only model routing, persisted decrypted credential
+
+**Stage Model Default**:
+A User's preferred verified and capability-compatible Model Configuration for a Model Selection Stage. It prepopulates a new Video Task but is copied into that task as an independent Stage Model Selection, so later default changes never alter existing tasks.
+_Avoid_: Live task default, global active model, required repeated model selection
+
+**Model Resolution Snapshot**:
+The non-sensitive provider, model identity, catalog capability revision, resolved selection version, and invocation parameters frozen with a Generation Record. It remains explainable after a User changes or revokes a configuration, but never contains a credential or provider authorization data.
+_Avoid_: Mutable model provenance, stored API key, provider authorization trace
+
+**Model Configuration Revocation**:
+The disabling of a Model Configuration that destroys its BYOK while retaining its non-sensitive historical identity. A configuration referenced by a task cannot be reused; unfinished stages wait for an explicit replacement, while only never-referenced configurations may be deleted.
+_Avoid_: Destructive historical deletion, silent credential rotation, automatic replacement model
+
 **Auto-Approval Preference**:
 A User-owned setting that automatically approves newly completed Script or Image Candidates at their review point. It never advances a candidate that was already waiting for review when the setting changed.
 _Avoid_: Task default, retroactive approval
