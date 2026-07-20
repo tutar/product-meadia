@@ -1,7 +1,8 @@
 #!/bin/bash
 # Start API, frontend, and the local Celery worker for ProductMedia.
 set -e
-cd "$(dirname "$0")"
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT_DIR"
 
 echo "=== ProductMedia ==="
 echo "Backend:  http://localhost:8000/docs"
@@ -12,12 +13,11 @@ echo ""
 conda run --no-capture-output -n perfume-video uvicorn src.main:app --host 0.0.0.0 --port 8000 --log-level warning &
 BACKEND_PID=$!
 
-# Frontend  
-cd frontend && npm run dev -- --host 0.0.0.0 --port 5173 &
+# Frontend
+(cd "$ROOT_DIR/frontend" && npm run dev -- --host 0.0.0.0 --port 5173) &
 FRONTEND_PID=$!
 
-cd ..
-./start-worker.sh &
+"$ROOT_DIR/start-worker.sh" &
 WORKER_PID=$!
 
 echo "Started (backend=$BACKEND_PID, frontend=$FRONTEND_PID, worker=$WORKER_PID)"
