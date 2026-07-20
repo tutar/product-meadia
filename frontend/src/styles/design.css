@@ -353,6 +353,10 @@ a:hover { text-decoration: underline; }
   border-color: var(--success);
 }
 
+.task-progress-materials { cursor: pointer; }
+.task-progress-materials:hover { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+.task-progress-materials:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* === Task Workspace === */
 .task-workspace { display: grid; grid-template-columns: minmax(264px, 300px) minmax(0, 1fr); min-height: calc(100vh - 136px); border: 1px solid var(--border); background: var(--surface); }
 .task-queue { position: sticky; top: 72px; align-self: start; min-width: 0; max-height: calc(100vh - 96px); overflow-y: auto; border-right: 1px solid var(--border); background: var(--surface-raised); }

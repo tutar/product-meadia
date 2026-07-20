@@ -57,6 +57,21 @@ test("task detail keeps every execution attempt collapsed by default", async ({ 
   await expect(log.getByRole("button", { name: /writing script|撰写脚本/i }).first()).toHaveAttribute("aria-expanded", "false");
 });
 
+test("completed top-level planning node opens generation materials", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-top-node", route => route.fulfill({ json: { id: "task-top-node", status: "script_review", type: "promo", image_count: 1, progress_log: [{ attempt: 1, stage: "planning", step: "generate_creative_brief", status: "completed" }] } }));
+  await page.route("**/api/v1/tasks/task-top-node/creative-brief", route => route.fulfill({ json: { id: "brief", task_id: "task-top-node", content: {}, status: "approved" } }));
+  await page.route("**/api/v1/tasks/task-top-node/script", route => route.fulfill({ json: { id: "script", task_id: "task-top-node", content: "Script", image_prompts: [], voiceover_text: "Script", status: "pending_review" } }));
+  await page.route("**/api/v1/tasks/task-top-node/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-top-node/video-candidates", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-top-node/generation-records**", route => route.fulfill({ json: [{ id: "record", task_id: "task-top-node", stage: "planning", substep: "generate_creative_brief", attempt: 1, provider: "litellm", model: "scriptwriter", parameters: {}, normalized_input: {}, normalized_output: { creative_brief: { core_promise: "Ritual" } }, provider_payload: {}, media_asset_ids: [], provenance: {}, training_candidate: "pending_review", created_at: "2026-07-19T10:00:00Z" }] }));
+
+  await page.goto("/tasks/task-top-node");
+  await page.getByRole("button", { name: "2. Planning" }).click();
+  await expect(page.getByRole("dialog", { name: "Generation materials" })).toBeVisible();
+});
+
 test("completed stage opens generation materials with the latest record", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
   await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));

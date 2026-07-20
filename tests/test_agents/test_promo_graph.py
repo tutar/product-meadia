@@ -1,6 +1,7 @@
 import pytest
+from openai import OpenAIError
 from unittest.mock import AsyncMock, patch, MagicMock
-from src.agents.promo_graph import build_promo_graph, clip_segments_for_shot_plan, keyframes_for_segments, promo_graph
+from src.agents.promo_graph import build_promo_graph, clip_segments_for_shot_plan, composition_options, keyframes_for_segments, promo_graph
 
 
 @pytest.mark.asyncio
@@ -23,6 +24,14 @@ async def test_promo_graph_structure():
 def test_promo_graph_has_no_checkpointer_at_module_level():
     """Module-level graph has no checkpointer; Celery injects PostgresSaver at runtime."""
     assert promo_graph.checkpointer is None or promo_graph.checkpointer is False
+
+
+@pytest.mark.asyncio
+async def test_composition_feedback_falls_back_when_optional_llm_adjustment_is_unavailable():
+    state = {"review_feedback": [{"target_type": "composition", "content": "Make subtitles lower."}]}
+    with patch("src.agents.promo_graph.llm_chat", new_callable=AsyncMock, side_effect=OpenAIError("invalid model")) as llm:
+        assert await composition_options(state) == {"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}
+    assert llm.await_args.args[0] == "scriptwriter"
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 import json
+from openai import OpenAIError
 from langgraph.graph import StateGraph, END
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
@@ -48,11 +49,11 @@ async def composition_options(state: VideoAgentState) -> dict:
     guidance = review_guidance(state, "composition")
     if not guidance:
         return defaults
-    result = await llm_chat("composition_designer", "Return only JSON with subtitle_offset (6-18) and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2)
     try:
+        result = await llm_chat("scriptwriter", "Return only JSON with subtitle_offset (6-18) and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2)
         proposed = json.loads(result)
         return {"subtitle_offset": min(18, max(6, int(proposed.get("subtitle_offset", 12)))), "subtitle_size": min(42, max(24, int(proposed.get("subtitle_size", 30))))}
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except (OpenAIError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
         return defaults
 
 

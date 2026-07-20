@@ -44,6 +44,14 @@ const LEGACY_FEEDBACK_STAGE: Record<string, string> = {
   character: "character", video: "video_gen", composition: "compositing",
 };
 
+const PROGRESS_STAGE: Record<string, string> = {
+  planning: "planning",
+  scripting: "scripting",
+  imaging: "imaging",
+  video_gen: "video_gen",
+  compositing: "compositing",
+};
+
 type LogEntry = { attempt?: number; stage?: string; step: string; status: string; summary?: string; time?: string; started_at?: string; finished_at?: string; duration_ms?: number };
 
 function executionAttempts(log: LogEntry[]) {
@@ -372,7 +380,12 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
           const cls = realIdx < currentStepIdx || task.status === "done"
             ? "step done"
             : realIdx === currentStepIdx ? "step active" : "step";
-          return <div key={s} className={cls}>{i + 1}. {t(`steps.${s}`, s)}</div>;
+          const stage = PROGRESS_STAGE[s];
+          const isCompletedStage = Boolean(stage && realIdx < currentStepIdx);
+          const label = `${i + 1}. ${t(`steps.${s}`, s)}`;
+          return isCompletedStage
+            ? <button key={s} type="button" className={`${cls} task-progress-materials`} onClick={() => void openGenerationMaterials(stage)}>{label}</button>
+            : <div key={s} className={cls}>{label}</div>;
         })}
       </div>
 
