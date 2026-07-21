@@ -181,7 +181,7 @@ async def test_promo_composition_keeps_clip_windows_at_their_planned_duration_wh
         render.return_value = "/tmp/final.mp4"
         async for _ in build_promo_graph(interrupt_before=[]).astream(state, {"configurable": {"thread_id": "timing"}}):
             pass
-    assert tts.await_args.kwargs == {}
+    assert tts.await_args.kwargs == {"task_id": "timing"}
     assert 'data-duration="5.0" data-track-index="0"' in render.await_args.args[0]
     assert 'data-duration="46.4" data-track-index="0"' not in render.await_args.args[0]
     html = render.await_args.args[0]

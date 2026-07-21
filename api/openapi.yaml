@@ -26,6 +26,129 @@ paths:
               schema: { $ref: "#/components/schemas/MediaAccess" }
         "404":
           description: 资产不存在或不属于当前用户
+  /provider-model-catalog:
+    get:
+      summary: 查询平台维护的、可按阶段能力过滤的模型目录
+      tags: [Model configurations]
+      parameters:
+        - name: capability
+          in: query
+          schema: { type: string, enum: [creative_planning, scriptwriting, keyframe_image, clip_video, voice_generation, viral_analysis] }
+      responses:
+        "200":
+          description: 可用目录模型
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProviderModelCatalogEntry" }
+  /model-configurations:
+    get:
+      summary: 列出当前用户的模型配置；绝不返回凭据
+      tags: [Model configurations]
+      responses:
+        "200":
+          description: 模型配置
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ModelConfiguration" }
+    post:
+      summary: 创建用户拥有的 BYOK 或平台默认模型配置
+      tags: [Model configurations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModelConfigurationCreate" }
+      responses:
+        "201":
+          description: 未验证的模型配置
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelConfiguration" }
+  /model-configurations/{configuration_id}/verify:
+    post:
+      summary: 以无计费探针验证模型配置
+      tags: [Model configurations]
+      parameters:
+        - name: configuration_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 验证状态
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelConfiguration" }
+  /model-configurations/{configuration_id}:
+    patch:
+      summary: 更新模型配置凭据或平台默认选择；更新后需重新验证
+      tags: [Model configurations]
+      parameters:
+        - name: configuration_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ModelConfigurationUpdate" }
+      responses:
+        "200":
+          description: 已更新配置
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelConfiguration" }
+    delete:
+      summary: 删除从未被任务引用的模型配置
+      tags: [Model configurations]
+      parameters:
+        - name: configuration_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: 已删除 }
+        "409": { description: 已被任务或默认选择引用 }
+  /model-configurations/{configuration_id}/revoke:
+    post:
+      summary: 撤销配置并销毁其 BYOK
+      tags: [Model configurations]
+      parameters:
+        - name: configuration_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 已撤销配置
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelConfiguration" }
+  /stage-model-defaults/{stage}:
+    put:
+      summary: 设置一个已验证且能力兼容的阶段默认模型
+      tags: [Model configurations]
+      parameters:
+        - name: stage
+          in: path
+          required: true
+          schema: { type: string, enum: [creative_planning, scriptwriting, keyframe_image, clip_video, voice_generation, viral_analysis] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StageModelDefaultUpsert" }
+      responses:
+        "200":
+          description: 已保存默认选择
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StageModelDefault" }
   /categories:
     get:
       summary: 品类列表
@@ -615,6 +738,63 @@ components:
         asset_id: { type: string, format: uuid }
         url: { type: string, format: uri }
         expires_at: { type: string, format: date-time }
+    ProviderModelCatalogEntry:
+      type: object
+      required: [id, provider, model_id, display_name, capabilities, constraints, capability_revision, platform_default_available, is_available]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string }
+        model_id: { type: string }
+        display_name: { type: string }
+        capabilities: { type: array, items: { type: string } }
+        constraints: { type: object, additionalProperties: true }
+        capability_revision: { type: integer, minimum: 1 }
+        platform_default_available: { type: boolean }
+        is_available: { type: boolean }
+    ModelConfigurationCreate:
+      type: object
+      required: [catalog_model_id]
+      properties:
+        catalog_model_id: { type: string, format: uuid }
+        credential: { type: string, writeOnly: true }
+        use_platform_default: { type: boolean, default: false }
+      oneOf:
+        - required: [credential]
+        - required: [use_platform_default]
+    ModelConfiguration:
+      type: object
+      required: [id, catalog_model_id, provider, model_id, capabilities, constraints, uses_platform_default, verification_status]
+      properties:
+        id: { type: string, format: uuid }
+        catalog_model_id: { type: string, format: uuid }
+        provider: { type: string }
+        model_id: { type: string }
+        display_name: { type: string }
+        capabilities: { type: array, items: { type: string } }
+        constraints: { type: object, additionalProperties: true }
+        uses_platform_default: { type: boolean }
+        verification_status: { type: string, enum: [unverified, verified, unavailable, revoked] }
+        verification_error: { type: string, nullable: true }
+        verified_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ModelConfigurationUpdate:
+      type: object
+      properties:
+        credential: { type: string, writeOnly: true }
+        use_platform_default: { type: boolean }
+    StageModelDefaultUpsert:
+      type: object
+      required: [model_configuration_id]
+      properties:
+        model_configuration_id: { type: string, format: uuid }
+    StageModelDefault:
+      type: object
+      required: [stage, model_configuration_id]
+      properties:
+        stage: { type: string }
+        model_configuration_id: { type: string, format: uuid }
     AttributeType:
       type: string
       enum: [text, number, single_select, multi_select, boolean]
