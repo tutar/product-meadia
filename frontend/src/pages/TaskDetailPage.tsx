@@ -459,9 +459,12 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
       )}
 
-      {stageModelSelections.length > 0 && <section className="card mt-6" aria-label="Frozen model selections">
-        <h2>Frozen model selections</h2>
-        <ul>{stageModelSelections.map(selection => <li key={selection.stage}>{selection.stage}: {selection.resolution_snapshot?.provider} / {selection.resolution_snapshot?.model_id} · Selection v{selection.selection_version} · {selection.availability_status}</li>)}</ul>
+      {stageModelSelections.length > 0 && <section className="card mt-6" aria-label={t("modelConfigurations.stageSelectionsTitle")}>
+        <h2>{t("modelConfigurations.stageSelectionsTitle")}</h2>
+        <ul>{stageModelSelections.map(selection => {
+          const pending = selection.resolution_snapshot?.state === "pending_resolution";
+          return <li key={selection.stage}>{selection.stage}: {pending ? t("modelConfigurations.pendingResolution") : `${selection.resolution_snapshot?.adapter || selection.resolution_snapshot?.provider} / ${selection.resolution_snapshot?.model_id}`} · Selection v{selection.selection_version} · {selection.availability_status}</li>;
+        })}</ul>
       </section>}
 
       {task.error_message && (

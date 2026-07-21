@@ -768,12 +768,21 @@ async def regenerate_video_candidate(task_id: UUID, candidate_id: UUID, body: Re
     candidate = await db.scalar(select(VideoCandidate).where(VideoCandidate.id == candidate_id, VideoCandidate.task_id == task_id, VideoCandidate.is_current.is_(True)))
     if not candidate:
         raise HTTPException(status_code=404, detail="Current video candidate not found")
-    if body.model_configuration_id is not None:
-        if candidate.kind != "clip":
-            raise HTTPException(status_code=422, detail="Composition regeneration cannot replace a model selection")
+    if candidate.kind == "clip":
+        # A User-requested regeneration deliberately begins a new selection
+        # version.  Omitting a replacement keeps the same configuration
+        # reference, but resolves its latest verified revision at stage start.
+        selection = await db.scalar(select(StageModelSelection).where(
+            StageModelSelection.task_id == task.id, StageModelSelection.stage == "clip_video",
+        ))
+        if selection is None:
+            raise HTTPException(status_code=409, detail="Clip regeneration has no model selection")
         await replace_stage_model_selection(
-            db, task, user.id, "clip_video", body.model_configuration_id, explicit_regeneration=True,
+            db, task, user.id, "clip_video", body.model_configuration_id or selection.model_configuration_id,
+            explicit_regeneration=True,
         )
+    elif body.model_configuration_id is not None:
+        raise HTTPException(status_code=422, detail="Composition regeneration cannot replace a model selection")
     # Recomposition and clip regeneration are both a rejected review decision.
     # Recording the feedback before dispatching keeps the retry fully auditable.
     record_feedback(db, task, "composition" if candidate.kind == "composition" else "video_clip", candidate.id, validated_feedback(body.feedback))

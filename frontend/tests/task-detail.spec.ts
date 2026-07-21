@@ -126,9 +126,13 @@ test("task detail exposes a revoked stage as waiting for explicit replacement", 
   await page.route("**/api/v1/tasks/task-replacement/script", route => route.fulfill({ json: { id: "script", task_id: "task-replacement", content: "Script", image_prompts: [], voiceover_text: "Script", status: "pending_review" } }));
   await page.route("**/api/v1/tasks/task-replacement/images", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/tasks/task-replacement/video-candidates", route => route.fulfill({ json: [] }));
-  await page.route("**/api/v1/tasks/task-replacement/stage-model-selections", route => route.fulfill({ json: [{ stage: "clip_video", selection_version: 2, availability_status: "replacement_required", resolution_snapshot: { provider: "google", model_id: "veo-3" } }] }));
+  await page.route("**/api/v1/tasks/task-replacement/stage-model-selections", route => route.fulfill({ json: [
+    { stage: "scriptwriting", selection_version: 1, availability_status: "available", resolution_snapshot: { state: "pending_resolution" } },
+    { stage: "clip_video", selection_version: 2, availability_status: "replacement_required", resolution_snapshot: { provider: "google", model_id: "veo-3" } },
+  ] }));
   await page.goto("/tasks/task-replacement");
-  await expect(page.getByRole("region", { name: "Frozen model selections" })).toContainText("clip_video: google / veo-3 · Selection v2 · replacement_required");
+  await expect(page.getByRole("region", { name: "Stage model selections" })).toContainText("clip_video: google / veo-3 · Selection v2 · replacement_required");
+  await expect(page.getByRole("region", { name: "Stage model selections" })).toContainText("scriptwriting: Pending resolution · Selection v1 · available");
 });
 
 test("promo workspace reviews an ordered Shot Plan before generating keyframes", async ({ page }) => {
@@ -228,6 +232,7 @@ test("execution log localizes a known English summary for Chinese", async ({ pag
   const log = page.getByRole("region", { name: "执行日志" });
   await log.getByRole("button", { name: "第 1 次执行" }).click();
   await log.getByRole("button", { name: "撰写脚本" }).click();
+  await page.getByRole("button", { name: "关闭生成资料" }).click();
   await expect(log.getByRole("button", { name: "策划" })).toBeVisible();
   await log.getByRole("button", { name: "策划" }).click();
   await expect(log.getByText("生成镜头计划", { exact: true })).toBeVisible();

@@ -7,6 +7,45 @@ from src.services.model_credentials import encrypt_credential
 
 
 @pytest.mark.asyncio
+async def test_stage_start_freezes_latest_private_configuration_and_passes_its_api_base(db_session):
+    from src.services.model_invocation import ModelInvocationBoundary
+
+    class FakeLiteLLM:
+        async def complete(self, *, provider, model_id, api_base, credential, messages, temperature):
+            assert (provider, model_id, api_base, credential) == (
+                "openai", "private-script-v2", "http://scripts.internal/v1", "secret-only-at-boundary",
+            )
+            return "draft"
+
+    owner = User(email="private-stage-owner@example.test", hashed_password="x")
+    configuration = ModelConfiguration(
+        owner=owner, adapter="openai_compatible", api_base="http://scripts.internal/v1",
+        model_id="private-script-v2", display_name="Private script", capabilities=["scriptwriting"],
+        constraints={}, revision=2, credential_ciphertext=encrypt_credential("secret-only-at-boundary"),
+        verification_status="verified",
+    )
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, configuration, task])
+    await db_session.flush()
+    selection = StageModelSelection(task_id=task.id, stage="scriptwriting", model_configuration_id=configuration.id)
+    db_session.add(selection)
+    await db_session.commit()
+
+    result = await ModelInvocationBoundary(FakeLiteLLM()).complete(
+        db_session, task.id, "scriptwriting", [{"role": "user", "content": "draft"}],
+    )
+
+    await db_session.refresh(selection)
+    assert selection.started_at is not None
+    assert result.model_resolution_snapshot == {
+        "configuration_id": str(configuration.id), "adapter": "openai_compatible",
+        "api_base": "http://scripts.internal/v1", "model_id": "private-script-v2",
+        "capabilities": ["scriptwriting"], "constraints": {}, "configuration_revision": 2,
+        "selection_version": 1,
+    }
+
+
+@pytest.mark.asyncio
 async def test_invocation_uses_frozen_selection_and_decrypts_byok_only_at_the_boundary(db_session):
     from src.services.model_invocation import ModelInvocationBoundary
 
@@ -70,7 +109,7 @@ async def test_availability_failure_requires_and_allows_an_explicit_replacement_
     assert client.calls == 3
 
     await db_session.refresh(selection)
-    assert selection.started_at is None
+    assert selection.started_at is not None
     assert selection.availability_status == "replacement_required"
     updated = await replace_stage_model_selection(db_session, task, owner.id, "scriptwriting", replacement.id)
     assert updated.model_configuration_id == replacement.id

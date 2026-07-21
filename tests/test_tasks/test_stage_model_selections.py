@@ -21,7 +21,7 @@ def test_explicit_regeneration_request_can_name_the_replacement_model_configurat
 
 @pytest.mark.asyncio
 async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_resolution_snapshot(db_session):
-    from src.services.stage_model_selections import freeze_stage_model_selections
+    from src.services.stage_model_selections import freeze_stage_model_selections, resolve_stage_model_selection
 
     owner = User(email="selection-owner@example.test", hashed_password="x")
     catalog = ProviderModelCatalog(
@@ -54,12 +54,20 @@ async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_r
     assert stored.model_configuration_id == configuration.id
     assert stored.resolution_snapshot == {
         "configuration_id": str(configuration.id), "selection_version": 1,
-        "provider": "openai", "model_id": "gpt-4.1-mini",
-        "capability_revision": 7, "constraints": {"max_duration_seconds": 8, "max_keyframes": 2},
-        "availability_status": "available",
-        "uses_platform_default": False,
+        "state": "pending_resolution",
     }
     assert "encrypted-not-a-secret" not in str(stored.resolution_snapshot)
+
+    # Changes made while the task is still pending are picked up exactly once,
+    # at the atomic start boundary for this particular stage.
+    configuration.model_id = "gpt-4.1-mini-latest"
+    configuration.revision = 2
+    await db_session.commit()
+    resolved = await resolve_stage_model_selection(db_session, task.id, "creative_planning")
+
+    assert resolved.started_at is not None
+    assert resolved.resolution_snapshot["model_id"] == "gpt-4.1-mini-latest"
+    assert resolved.resolution_snapshot["configuration_revision"] == 2
 
 
 @pytest.mark.asyncio
@@ -154,6 +162,44 @@ async def test_clip_regeneration_atomically_replaces_the_frozen_model_selection(
     assert selection.selection_version == 2
     assert candidate.is_current is False
     assert candidate.status == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_user_clip_regeneration_restarts_the_same_configuration_at_its_latest_revision(db_session, monkeypatch):
+    from src.api.tasks import regenerate_video_candidate
+    from src.schemas.task import RegenerateRequest
+
+    owner = User(email="regenerate-latest@example.test", hashed_password="x")
+    configuration = ModelConfiguration(
+        owner=owner, adapter="openai_compatible", api_base="http://video.internal/v1",
+        model_id="video-v1", display_name="Private video", capabilities=["clip_video"], constraints={},
+        revision=1, credential_ciphertext="encrypted", verification_status="verified",
+    )
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, configuration, task])
+    await db_session.flush()
+    selection = StageModelSelection(
+        task_id=task.id, stage="clip_video", model_configuration_id=configuration.id,
+        selection_version=1, resolution_snapshot={"model_id": "video-v1"}, started_at=task.created_at,
+    )
+    candidate = VideoCandidate(task_id=task.id, kind="clip", sort_order=0, status="pending_review", is_current=True)
+    db_session.add_all([selection, candidate])
+    await db_session.commit()
+
+    configuration.model_id = "video-v2"
+    configuration.revision = 2
+    monkeypatch.setattr("src.tasks.video_tasks.run_video_task.delay", lambda _task_id: None)
+    await regenerate_video_candidate(
+        task.id, candidate.id, RegenerateRequest(feedback="Use the latest configured video model."), db_session, owner,
+    )
+    await db_session.refresh(selection)
+
+    assert selection.model_configuration_id == configuration.id
+    assert selection.selection_version == 2
+    assert selection.started_at is None
+    assert selection.resolution_snapshot == {
+        "configuration_id": str(configuration.id), "selection_version": 2, "state": "pending_resolution",
+    }
 
 
 @pytest.mark.asyncio

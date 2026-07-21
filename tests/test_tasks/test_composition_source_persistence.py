@@ -33,6 +33,7 @@ async def test_snapshot_is_persisted_before_the_render_node_can_run(db_session, 
     await video_tasks._persist_node_output(str(task.id), "composite_video", output)
 
     snapshot = await db_session.get(CompositionSourceSnapshot, output["composition_source_snapshot_id"])
+    await db_session.refresh(snapshot, ["asset"])
     assert snapshot.candidate_id is None
     persisted = (await storage.download(snapshot.asset.bucket, snapshot.asset.object_key)).decode()
     assert "https://" not in persisted
