@@ -56,6 +56,7 @@ async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_r
         "configuration_id": str(configuration.id), "selection_version": 1,
         "provider": "openai", "model_id": "gpt-4.1-mini",
         "capability_revision": 7, "constraints": {"max_duration_seconds": 8, "max_keyframes": 2},
+        "availability_status": "available",
         "uses_platform_default": False,
     }
     assert "encrypted-not-a-secret" not in str(stored.resolution_snapshot)

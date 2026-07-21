@@ -45,7 +45,9 @@ async def test_availability_failure_requires_and_allows_an_explicit_replacement_
     from src.services.stage_model_selections import replace_stage_model_selection
 
     class FailingLiteLLM:
+        calls = 0
         async def complete(self, **_kwargs):
+            self.calls += 1
             raise RuntimeError("provider unavailable")
 
     owner = User(email="replacement-after-failure@example.test", hashed_password="x")
@@ -61,8 +63,11 @@ async def test_availability_failure_requires_and_allows_an_explicit_replacement_
     db_session.add(selection)
     await db_session.commit()
 
+    client = FailingLiteLLM()
     with pytest.raises(ModelAvailabilityFailure):
-        await ModelInvocationBoundary(FailingLiteLLM()).complete(db_session, task.id, "scriptwriting", [])
+        await ModelInvocationBoundary(client).complete(db_session, task.id, "scriptwriting", [])
+
+    assert client.calls == 3
 
     await db_session.refresh(selection)
     assert selection.started_at is None
