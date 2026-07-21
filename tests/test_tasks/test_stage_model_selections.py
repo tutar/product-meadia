@@ -15,7 +15,7 @@ async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_r
     owner = User(email="selection-owner@example.test", hashed_password="x")
     catalog = ProviderModelCatalog(
         provider="openai", model_id="gpt-4.1-mini", display_name="GPT-4.1 mini",
-        capabilities=["creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation"], constraints={}, capability_revision=7,
+        capabilities=["creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation"], constraints={"max_duration_seconds": 8, "max_keyframes": 2}, capability_revision=7,
     )
     db_session.add_all([owner, catalog])
     await db_session.flush()
@@ -44,7 +44,8 @@ async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_r
     assert stored.resolution_snapshot == {
         "configuration_id": str(configuration.id), "selection_version": 1,
         "provider": "openai", "model_id": "gpt-4.1-mini",
-        "capability_revision": 7, "uses_platform_default": False,
+        "capability_revision": 7, "constraints": {"max_duration_seconds": 8, "max_keyframes": 2},
+        "uses_platform_default": False,
     }
     assert "encrypted-not-a-secret" not in str(stored.resolution_snapshot)
 

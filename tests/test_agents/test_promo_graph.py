@@ -148,6 +148,15 @@ def test_long_shot_is_split_into_model_sized_clip_segments():
     assert [(segment["shot_index"], segment["segment_index"]) for segment in segments] == [(0, 0), (0, 1), (0, 2)]
 
 
+def test_clip_segment_planning_uses_the_frozen_video_model_duration_constraint():
+    segments = clip_segments_for_shot_plan(
+        [{"target_duration_seconds": 12, "image_prompt": "still", "video_motion_prompt": "move"}],
+        max_duration_seconds=8,
+    )
+
+    assert [segment["target_duration_seconds"] for segment in segments] == [8, 4]
+
+
 def test_each_clip_segment_has_start_and_end_keyframes_for_the_selected_model():
     segments = clip_segments_for_shot_plan([{"target_duration_seconds": 12, "image_prompt": "still", "video_motion_prompt": "move"}])
 
@@ -157,6 +166,36 @@ def test_each_clip_segment_has_start_and_end_keyframes_for_the_selected_model():
     assert [(keyframe["segment_index"], keyframe["keyframe_role"]) for keyframe in keyframes] == [
         (0, "start"), (0, "end"), (1, "start"), (1, "end"), (2, "start"), (2, "end"),
     ]
+
+
+def test_keyframe_planning_honors_the_frozen_video_model_keyframe_constraint():
+    keyframes = keyframes_for_segments(
+        [{"shot_index": 0, "segment_index": 0, "image_prompt": "still"}], max_keyframes=1,
+    )
+
+    assert [(keyframe["segment_index"], keyframe["keyframe_role"]) for keyframe in keyframes] == [(0, "start")]
+
+
+@pytest.mark.asyncio
+async def test_keyframe_generation_uses_the_frozen_clip_model_constraints():
+    graph = build_promo_graph(interrupt_before=["wait_image_review"])
+    state = {
+        "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
+        "product_info": {"version": 1, "name": "Test", "category": {"name": "Perfume"}}, "main_image_data_uri": "",
+        "creative_brief": {"core_promise": "test"}, "creative_brief_approved": True,
+        "script_content": "script", "edited_script_content": "", "image_prompts": ["legacy"], "voiceover_text": "voiceover",
+        "shot_plan": [{"target_duration_seconds": 12, "image_prompt": "still", "video_motion_prompt": "move"}], "shot_plan_approved": True,
+        "clip_model_constraints": {"max_duration_seconds": 8, "max_keyframes": 1},
+        "generated_images": [], "video_clips": [], "tts_audio_url": "", "tts_words": [], "lipsync_video_url": "", "character_image_url": "",
+        "viral_url": "", "viral_analysis": {}, "hyperframes_html": "", "final_video_path": "", "review_approved": False,
+        "script_approved": True, "images_approved": False, "character_approved": False, "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
+    }
+    with patch("src.agents.promo_graph.generate_image", new_callable=AsyncMock, return_value="https://image"):
+        events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "frozen-constraints"}})]
+
+    generated = next(event["generate_images"] for event in events if "generate_images" in event)
+    assert [segment["target_duration_seconds"] for segment in generated["clip_segments"]] == [8, 4]
+    assert [image["keyframe_role"] for image in generated["generated_images"]] == ["start", "start"]
 
 
 @pytest.mark.asyncio
