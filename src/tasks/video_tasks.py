@@ -30,6 +30,7 @@ from src.models.generation_record import GenerationRecord
 from src.models.media_asset import MediaAsset
 from src.models.composition_source import CompositionSourceSnapshot
 from src.services.composition_sources import canonicalize_html, html_checksum
+from src.tools.render import renderer_environment
 from src.models.model_configuration import StageModelSelection
 from src.services.generation_audit import persist_generation_record as persist_model_generation_record
 
@@ -764,7 +765,7 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 source_kind="captured",
                 canonical_html_checksum=html_checksum(source.canonical_html),
                 input_asset_ids=source.input_asset_ids,
-                render_spec={"hyperframes_version": "0.7.59", "fps": 30},
+                render_spec={**renderer_environment(), "fps": 30, "width": 1152, "height": 768, "format": "mp4"},
                 provenance={"template_hash": html_checksum(source.canonical_html)},
             )
             db.add(snapshot)
