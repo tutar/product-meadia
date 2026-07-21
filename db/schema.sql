@@ -159,7 +159,16 @@ CREATE TABLE provider_model_catalog (
 CREATE TABLE model_configurations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    catalog_model_id UUID NOT NULL REFERENCES provider_model_catalog(id) ON DELETE RESTRICT,
+    -- Optional read-only template source. Runtime values below are copied so
+    -- this user-owned configuration never has a live template dependency.
+    catalog_model_id UUID REFERENCES provider_model_catalog(id) ON DELETE RESTRICT,
+    adapter VARCHAR(80) NOT NULL DEFAULT 'openai',
+    api_base VARCHAR(1000),
+    model_id VARCHAR(255),
+    display_name VARCHAR(255),
+    capabilities JSONB NOT NULL DEFAULT '[]',
+    constraints JSONB NOT NULL DEFAULT '{}',
+    revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
     credential_ciphertext TEXT,
     uses_platform_default BOOLEAN NOT NULL DEFAULT false,
     verification_status VARCHAR(20) NOT NULL DEFAULT 'unverified'
@@ -169,8 +178,7 @@ CREATE TABLE model_configurations (
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK ((uses_platform_default AND credential_ciphertext IS NULL)
-        OR (NOT uses_platform_default AND credential_ciphertext IS NOT NULL))
+    CHECK (credential_ciphertext IS NOT NULL)
 );
 
 CREATE TABLE stage_model_defaults (
