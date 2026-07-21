@@ -149,6 +149,48 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StageModelDefault" }
+  /tasks/{task_id}/stage-model-selections:
+    get:
+      summary: 查询任务冻结的阶段模型选择及非敏感解析快照
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: 阶段模型选择
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StageModelSelection" }
+  /tasks/{task_id}/stage-model-selections/{stage}:
+    put:
+      summary: 显式替换未开始或要求替换的任务阶段模型
+      tags: [Tasks]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: stage
+          in: path
+          required: true
+          schema: { type: string, enum: [creative_planning, scriptwriting, keyframe_image, clip_video, voice_generation, viral_analysis] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StageModelSelectionUpdate" }
+      responses:
+        "200":
+          description: 已替换的冻结选择
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StageModelSelection" }
+        "409": { description: 阶段已有生成输出；需显式再生成 }
   /categories:
     get:
       summary: 品类列表
@@ -419,46 +461,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/InitializationStatus"
 
-  /tasks:
-    post:
-      summary: 创建视频任务
-      operationId: createTask
-      tags: [Tasks]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [product_id, type]
-              properties:
-                product_id:
-                  type: string
-                  format: uuid
-                type:
-                  $ref: "#/components/schemas/TaskType"
-                image_count:
-                  type: integer
-                  default: 4
-                  description: 宣传视频生图数量（仅 promo 类型有效）
-                viral_url:
-                  type: string
-                  format: uri
-                  description: 爆款视频链接（仅 viral 类型必填）
-                script_overrides:
-                  type: object
-                  description: 可选脚本覆盖参数
-                style_overrides:
-                  type: object
-                  description: 可选的风格覆盖（BGM/转场/字幕等）
-      responses:
-        "201":
-          description: 任务已创建，返回任务 ID
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VideoTask"
-
   /tasks/viral/analyze:
     post:
       summary: 爆款视频分析
@@ -489,6 +491,34 @@ paths:
                 $ref: "#/components/schemas/ViralAnalysis"
 
   /tasks:
+    post:
+      summary: 创建视频任务
+      operationId: createTask
+      tags: [Tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, type]
+              properties:
+                product_id: { type: string, format: uuid }
+                type: { $ref: "#/components/schemas/TaskType" }
+                image_count: { type: integer, default: 4, description: 宣传视频生图数量（仅 promo 类型有效） }
+                viral_url: { type: string, format: uri, description: 爆款视频链接（仅 viral 类型必填） }
+                script_overrides: { type: object, description: 可选脚本覆盖参数 }
+                style_overrides: { type: object, description: 可选的风格覆盖（BGM/转场/字幕等） }
+                stage_model_configuration_ids:
+                  type: object
+                  description: 创建时覆盖用户阶段默认值；每项必须为已验证且能力兼容的配置，任务创建后冻结。
+                  additionalProperties: { type: string, format: uuid }
+      responses:
+        "201":
+          description: 任务已创建，返回任务 ID
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoTask" }
     get:
       summary: 任务列表
       operationId: listTasks
@@ -795,6 +825,23 @@ components:
       properties:
         stage: { type: string }
         model_configuration_id: { type: string, format: uuid }
+    StageModelSelectionUpdate:
+      type: object
+      required: [model_configuration_id]
+      properties:
+        model_configuration_id: { type: string, format: uuid }
+    StageModelSelection:
+      type: object
+      required: [stage, model_configuration_id, selection_version, resolution_snapshot, availability_status]
+      properties:
+        stage: { type: string }
+        model_configuration_id: { type: string, format: uuid }
+        selection_version: { type: integer, minimum: 1 }
+        resolution_snapshot:
+          type: object
+          description: 非敏感的提供商、模型、目录能力修订和解析选择快照。
+        availability_status: { type: string, enum: [available, replacement_required] }
+        started_at: { type: string, format: date-time, nullable: true }
     AttributeType:
       type: string
       enum: [text, number, single_select, multi_select, boolean]

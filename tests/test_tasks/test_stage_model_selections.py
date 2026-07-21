@@ -15,7 +15,7 @@ async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_r
     owner = User(email="selection-owner@example.test", hashed_password="x")
     catalog = ProviderModelCatalog(
         provider="openai", model_id="gpt-4.1-mini", display_name="GPT-4.1 mini",
-        capabilities=["creative_planning"], constraints={}, capability_revision=7,
+        capabilities=["creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation"], constraints={}, capability_revision=7,
     )
     db_session.add_all([owner, catalog])
     await db_session.flush()
@@ -25,9 +25,10 @@ async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_r
     )
     db_session.add(configuration)
     await db_session.flush()
-    db_session.add(StageModelDefault(
-        owner_user_id=owner.id, stage="creative_planning", model_configuration_id=configuration.id,
-    ))
+    db_session.add_all([
+        StageModelDefault(owner_user_id=owner.id, stage=stage, model_configuration_id=configuration.id)
+        for stage in ("creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation")
+    ])
     task = VideoTask(user_id=owner.id, product_snapshot={}, type="promo", image_count=1)
     db_session.add(task)
     await db_session.flush()
@@ -38,7 +39,7 @@ async def test_task_freezes_its_compatible_user_default_and_keeps_a_non_secret_r
     stored = await db_session.scalar(select(StageModelSelection).where(
         StageModelSelection.task_id == task.id, StageModelSelection.stage == "creative_planning",
     ))
-    assert [selection.stage for selection in selections] == ["creative_planning"]
+    assert [selection.stage for selection in selections] == ["creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation"]
     assert stored.model_configuration_id == configuration.id
     assert stored.resolution_snapshot == {
         "configuration_id": str(configuration.id), "selection_version": 1,
@@ -90,7 +91,7 @@ async def test_revoking_a_frozen_configuration_marks_unstarted_stage_as_waiting_
     from src.api.tasks import list_stage_model_selections
 
     owner = User(email="revoked-selection@example.test", hashed_password="x")
-    catalog = ProviderModelCatalog(provider="openai", model_id="gpt-4.1", display_name="GPT", capabilities=["scriptwriting"], constraints={})
+    catalog = ProviderModelCatalog(provider="openai", model_id="gpt-4.1", display_name="GPT", capabilities=["creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation"], constraints={})
     db_session.add_all([owner, catalog])
     await db_session.flush()
     configuration = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext="encrypted", verification_status="verified")
@@ -115,7 +116,7 @@ async def test_task_creation_can_freeze_a_verified_compatible_stage_override_ins
     from src.services.stage_model_selections import freeze_stage_model_selections
 
     owner = User(email="selection-override@example.test", hashed_password="x")
-    catalog = ProviderModelCatalog(provider="openai", model_id="gpt-4.1", display_name="GPT", capabilities=["scriptwriting"], constraints={})
+    catalog = ProviderModelCatalog(provider="openai", model_id="gpt-4.1", display_name="GPT", capabilities=["creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation"], constraints={})
     db_session.add_all([owner, catalog])
     await db_session.flush()
     configuration = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext="encrypted", verification_status="verified")
@@ -123,8 +124,25 @@ async def test_task_creation_can_freeze_a_verified_compatible_stage_override_ins
     db_session.add_all([configuration, task])
     await db_session.flush()
 
-    selections = await freeze_stage_model_selections(
-        db_session, task, owner.id, overrides={"scriptwriting": configuration.id},
-    )
+    selections = await freeze_stage_model_selections(db_session, task, owner.id, overrides={
+        stage: configuration.id
+        for stage in ("creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation")
+    })
 
-    assert [(selection.stage, selection.model_configuration_id) for selection in selections] == [("scriptwriting", configuration.id)]
+    assert [(selection.stage, selection.model_configuration_id) for selection in selections] == [
+        (stage, configuration.id)
+        for stage in ("creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_task_cannot_start_until_every_applicable_stage_has_a_frozen_selection(db_session):
+    from src.services.stage_model_selections import ModelSelectionUnavailableError, freeze_stage_model_selections
+
+    owner = User(email="selection-missing@example.test", hashed_password="x")
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, task])
+    await db_session.flush()
+
+    with pytest.raises(ModelSelectionUnavailableError, match="scriptwriting"):
+        await freeze_stage_model_selections(db_session, task, owner.id)

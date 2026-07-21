@@ -48,6 +48,12 @@ async def freeze_stage_model_selections(
     if unknown_stages:
         raise ModelSelectionUnavailableError(f"Unknown model selection stages: {', '.join(sorted(unknown_stages))}")
     defaults_by_stage = {item.stage: item for item in defaults}
+    missing_stages = [stage for stage in stages_for_task(task.type) if stage not in requested and stage not in defaults_by_stage]
+    if missing_stages:
+        raise ModelSelectionUnavailableError(
+            "A verified model selection is required for every task stage: "
+            + ", ".join(missing_stages)
+        )
     selections = []
     for stage in stages_for_task(task.type):
         if stage in requested:
@@ -60,8 +66,8 @@ async def freeze_stage_model_selections(
                 raise ModelSelectionUnavailableError(f"Override for {stage} is not owned by this user")
         elif default := defaults_by_stage.get(stage):
             configuration = default.model_configuration
-        else:
-            continue
+        else:  # guarded above; keep the invariant local to this loop.
+            raise ModelSelectionUnavailableError(f"No model selection exists for {stage}")
         if configuration.verification_status != "verified":
             raise ModelSelectionUnavailableError(f"Selection for {stage} is not verified")
         if stage not in configuration.catalog_model.capabilities:
@@ -87,7 +93,7 @@ async def replace_stage_model_selection(
     ))
     if selection is None:
         raise HTTPException(status_code=404, detail="Stage selection not found")
-    if selection.started_at is not None:
+    if selection.started_at is not None and selection.availability_status == "available":
         raise HTTPException(status_code=409, detail="Stage has already started; regenerate explicitly to replace its model")
     configuration = await db.scalar(select(ModelConfiguration).options(selectinload(ModelConfiguration.catalog_model)).where(
         ModelConfiguration.id == replacement_configuration_id,

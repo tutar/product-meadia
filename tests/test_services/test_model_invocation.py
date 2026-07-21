@@ -40,6 +40,39 @@ async def test_invocation_uses_frozen_selection_and_decrypts_byok_only_at_the_bo
 
 
 @pytest.mark.asyncio
+async def test_availability_failure_requires_and_allows_an_explicit_replacement_before_stage_starts(db_session):
+    from src.services.model_invocation import ModelAvailabilityFailure, ModelInvocationBoundary
+    from src.services.stage_model_selections import replace_stage_model_selection
+
+    class FailingLiteLLM:
+        async def complete(self, **_kwargs):
+            raise RuntimeError("provider unavailable")
+
+    owner = User(email="replacement-after-failure@example.test", hashed_password="x")
+    catalog = ProviderModelCatalog(provider="openai", model_id="gpt-4.1-mini", display_name="GPT", capabilities=["scriptwriting"], constraints={})
+    db_session.add_all([owner, catalog])
+    await db_session.flush()
+    original = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext=encrypt_credential("old"), verification_status="verified")
+    replacement = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext=encrypt_credential("new"), verification_status="verified")
+    task = VideoTask(user_id=owner.id, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([original, replacement, task])
+    await db_session.flush()
+    selection = StageModelSelection(task_id=task.id, stage="scriptwriting", model_configuration_id=original.id, resolution_snapshot={"provider": "openai", "model_id": "gpt-4.1-mini"})
+    db_session.add(selection)
+    await db_session.commit()
+
+    with pytest.raises(ModelAvailabilityFailure):
+        await ModelInvocationBoundary(FailingLiteLLM()).complete(db_session, task.id, "scriptwriting", [])
+
+    await db_session.refresh(selection)
+    assert selection.started_at is None
+    assert selection.availability_status == "replacement_required"
+    updated = await replace_stage_model_selection(db_session, task, owner.id, "scriptwriting", replacement.id)
+    assert updated.model_configuration_id == replacement.id
+    assert updated.availability_status == "available"
+
+
+@pytest.mark.asyncio
 async def test_image_invocation_uses_the_frozen_keyframe_selection(db_session):
     from src.services.model_invocation import ModelInvocationBoundary
 

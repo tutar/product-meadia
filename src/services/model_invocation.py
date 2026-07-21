@@ -138,7 +138,9 @@ class ModelInvocationBoundary:
 
     async def _record_failure(self, db: AsyncSession, selection: StageModelSelection, configuration: ModelConfiguration) -> None:
         configuration.verification_status = "unavailable"
-        selection.started_at = selection.started_at or datetime.now(timezone.utc)
+        # A failed invocation produced no candidate. It must wait for an
+        # explicit replacement, rather than looking like a completed stage.
+        selection.availability_status = "replacement_required"
         await db.commit()
 
     async def _record_success(self, db: AsyncSession, selection: StageModelSelection) -> None:

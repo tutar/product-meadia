@@ -16,9 +16,7 @@ from src.schemas.model_configuration import (
 )
 from src.services.model_catalog import ensure_provider_model_catalog
 from src.services.model_credentials import encrypt_credential
-from src.services.model_credentials import decrypt_credential
 from src.services.model_verification import SafeModelVerifier
-from src.config import settings
 
 router = APIRouter(tags=["Model configurations"])
 MODEL_SELECTION_STAGES = frozenset({"creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation", "viral_analysis"})
@@ -126,12 +124,8 @@ async def verify_model_configuration(configuration_id: UUID, db: AsyncSession = 
     configuration = await owned_configuration(db, user, configuration_id)
     if configuration.revoked_at:
         raise HTTPException(status_code=409, detail="Revoked model configurations cannot be verified")
-    credential = settings.platform_default_model_api_key if configuration.uses_platform_default else decrypt_credential(configuration.credential_ciphertext)
-    result = await (verifier or SafeModelVerifier()).verify(
-        provider=configuration.catalog_model.provider,
-        model_id=configuration.catalog_model.model_id,
-        credential=credential,
-    )
+    verifier = verifier or SafeModelVerifier()
+    result = await verifier.verify_configuration(configuration)
     configuration.verification_status = "verified" if result.available else "unverified"
     configuration.verification_error = None if result.available else result.error
     configuration.verified_at = datetime.now(timezone.utc) if result.available else None

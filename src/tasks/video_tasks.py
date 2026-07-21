@@ -366,7 +366,11 @@ async def _async_run(task_id: str, celery_task_id: str):
                     normalized_input=normalized_input, normalized_output=normalized_output,
                     provider_payload=provider_payload,
                     provenance={"workflow_commit": settings.git_commit, "prompt_template_hash": parameters.get("prompt_template_hash")},
-                    model_resolution_snapshot=dict(selection.resolution_snapshot) if selection else {},
+                    model_resolution_snapshot={
+                        **(dict(selection.resolution_snapshot) if selection else {}),
+                        "invocation_parameters": dict(parameters),
+                        "retry_count": max(0, attempt_number - 1),
+                    },
                 ))
                 await record_db.commit()
 

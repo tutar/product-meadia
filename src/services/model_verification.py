@@ -7,6 +7,10 @@ from dataclasses import dataclass
 
 from openai import AsyncOpenAI
 
+from src.config import settings
+from src.models.model_configuration import ModelConfiguration
+from src.services.model_credentials import decrypt_credential
+
 
 @dataclass(frozen=True)
 class VerificationResult:
@@ -15,6 +19,19 @@ class VerificationResult:
 
 
 class SafeModelVerifier:
+    async def verify_configuration(self, configuration: ModelConfiguration) -> VerificationResult:
+        """Resolve the credential transiently inside the server-side probe boundary."""
+        credential = (
+            settings.platform_default_model_api_key
+            if configuration.uses_platform_default
+            else decrypt_credential(configuration.credential_ciphertext)
+        )
+        return await self.verify(
+            provider=configuration.catalog_model.provider,
+            model_id=configuration.catalog_model.model_id,
+            credential=credential,
+        )
+
     async def verify(self, *, provider: str, model_id: str, credential: str | None) -> VerificationResult:
         if not credential:
             return VerificationResult(False, "No credential is available for verification")

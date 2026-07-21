@@ -46,10 +46,10 @@ async def test_only_verified_capability_compatible_configurations_become_stage_d
     from src.services.model_verification import VerificationResult
 
     class SafeProbe:
-        async def verify(self, *, provider, model_id, credential):
-            assert provider == "openai"
-            assert model_id == "gpt-4.1-mini"
-            assert credential == "secret-for-the-server-only"
+        async def verify_configuration(self, configuration):
+            assert configuration.catalog_model.provider == "openai"
+            assert configuration.catalog_model.model_id == "gpt-4.1-mini"
+            assert configuration.credential_ciphertext != "secret-for-the-server-only"
             return VerificationResult(available=True)
 
     user = User(email="verified-owner@example.test", hashed_password="x")
