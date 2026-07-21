@@ -123,7 +123,7 @@ CREATE TABLE media_assets (
     task_id UUID REFERENCES video_tasks(id) ON DELETE CASCADE,
     category VARCHAR(30) NOT NULL CHECK (category IN (
         'product_image', 'source_video', 'generated_image', 'video_clip',
-        'tts_audio', 'lipsync_video', 'character_image', 'final_video'
+        'tts_audio', 'lipsync_video', 'character_image', 'final_video', 'composition_source'
     )),
     bucket VARCHAR(255) NOT NULL,
     object_key TEXT NOT NULL UNIQUE,
@@ -139,6 +139,25 @@ CREATE TABLE media_assets (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE composition_source_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES video_tasks(id) ON DELETE CASCADE,
+    candidate_id UUID REFERENCES video_candidates(id) ON DELETE CASCADE UNIQUE,
+    asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL,
+    generation_record_id UUID REFERENCES generation_records(id) ON DELETE SET NULL,
+    source_kind VARCHAR(20) NOT NULL CHECK (source_kind IN ('captured', 'reconstructed')),
+    canonical_html_checksum VARCHAR(64) NOT NULL,
+    input_asset_ids JSONB NOT NULL DEFAULT '[]',
+    render_spec JSONB NOT NULL DEFAULT '{}',
+    provenance JSONB NOT NULL DEFAULT '{}',
+    reconstruction_notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE video_candidates
+    ADD COLUMN IF NOT EXISTS recomposed_from_candidate_id UUID REFERENCES video_candidates(id) ON DELETE SET NULL;
 
 ALTER TABLE main_image_candidates
     ADD COLUMN IF NOT EXISTS asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;

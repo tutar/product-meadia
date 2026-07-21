@@ -133,8 +133,13 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
             subtitle_offset=options["subtitle_offset"],
             subtitle_size=options["subtitle_size"],
         )
-        path = await render_hyperframes(html)
-        return {"hyperframes_html": html, "final_video_path": path}
+        return {"hyperframes_html": html}
+
+    async def render_composition(state: VideoAgentState) -> dict:
+        return {
+            "final_video_path": await render_hyperframes(state["hyperframes_html"]),
+            "composition_source_snapshot_id": state.get("composition_source_snapshot_id", ""),
+        }
 
     graph.add_node("generate_character", tracked_node("generate_character", generate_character))
     graph.add_node("wait_character_review", wait_character_review)
@@ -142,6 +147,7 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
     graph.add_node("wait_script_review", wait_script_review)
     graph.add_node("generate_tts_and_lipsync", tracked_node("generate_tts_and_lipsync", generate_tts_and_lipsync))
     graph.add_node("composite", tracked_node("composite", composite))
+    graph.add_node("render_composition", tracked_node("render_composition", render_composition))
 
     graph.set_entry_point("generate_character")
     graph.add_edge("generate_character", "wait_character_review")
@@ -149,7 +155,8 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
     graph.add_edge("generate_script", "wait_script_review")
     graph.add_edge("wait_script_review", "generate_tts_and_lipsync")
     graph.add_edge("generate_tts_and_lipsync", "composite")
-    graph.add_edge("composite", END)
+    graph.add_edge("composite", "render_composition")
+    graph.add_edge("render_composition", END)
 
     return graph.compile(
         checkpointer=checkpointer,

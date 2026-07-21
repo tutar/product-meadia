@@ -28,6 +28,8 @@ from src.tasks.execution import (
 from src.tasks.generation_records import generation_substep, reset_generation_recorder, set_generation_recorder
 from src.models.generation_record import GenerationRecord
 from src.models.media_asset import MediaAsset
+from src.models.composition_source import CompositionSourceSnapshot
+from src.services.composition_sources import canonicalize_html, html_checksum
 
 # Celery invokes each task through asyncio.run(), creating a new event loop.
 # Asyncpg connections cannot move between those loops, so this worker must not
@@ -137,7 +139,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "voiceover_text": "", "generated_images": [], "video_clips": [], "video_clips_reused": False,
                 "tts_audio_url": "", "tts_duration_seconds": 0.0, "tts_generation_key": "initial", "tts_words": [], "lipsync_video_url": "",
                 "character_image_url": "", "viral_analysis": {},
-                "hyperframes_html": "", "final_video_path": "",
+                "hyperframes_html": "", "final_video_path": "", "composition_source_snapshot_id": "",
                 "review_approved": False, "script_approved": False,
                 "images_approved": False, "character_approved": False,
                 "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
@@ -428,7 +430,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                     entry["summary"] = f"Video clips: {len(clips)} generated"
                 elif node_name == "generate_voiceover":
                     entry["summary"] = "TTS audio generated"
-                elif node_name in ("composite_video", "composite"):
+                elif node_name == "render_composition":
                     entry["summary"] = f"Final video: {node_output.get('final_video_path', 'N/A')[:60]}"
                 saved_state = {key: node_output[key] for key in ARTIFACT_STATE_KEYS if key in node_output}
                 if saved_state:
@@ -454,7 +456,7 @@ async def _async_run(task_id: str, celery_task_id: str):
 
                 # Video and final composition are explicit review boundaries.
                 # Their persisted candidates let a later resume reuse approved inputs.
-                if (node_name == "generate_video_clips" and not node_output.get("video_clips_reused")) or node_name in ("composite_video", "composite"):
+                if (node_name == "generate_video_clips" and not node_output.get("video_clips_reused")) or node_name == "render_composition":
                     reset_execution_reporter(reporter_token)
                     reporter_token = None
                     return
@@ -720,6 +722,47 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 blueprint = EditingBlueprint(task_id=task_id, entries=[])
                 db.add(blueprint)
             blueprint.entries = output.get("editing_blueprint", blueprint.entries)
+            t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            media = MediaService(db, create_rustfs_storage(settings))
+            clips = (await db.scalars(select(VideoCandidate).where(
+                VideoCandidate.task_id == task_id,
+                VideoCandidate.kind == "clip",
+                VideoCandidate.is_current.is_(True),
+                VideoCandidate.asset_id.is_not(None),
+            ).order_by(VideoCandidate.sort_order))).all()
+            audio = await db.scalar(select(MediaAsset).where(
+                MediaAsset.task_id == task_id,
+                MediaAsset.category == "tts_audio",
+                MediaAsset.status == "available",
+            ).order_by(MediaAsset.created_at.desc()))
+            source = canonicalize_html(
+                output["hyperframes_html"], [str(clip.asset_id) for clip in clips], str(audio.id) if audio else None
+            )
+            source_asset = await media.create_asset(
+                owner_user_id=t.user_id,
+                category="composition_source",
+                data=source.canonical_html.encode("utf-8"),
+                content_type="text/html; charset=utf-8",
+                filename=f"{task_id}-composition-source.html",
+                task_id=t.id,
+                source_provider="hyperframes",
+                idempotency_key=f"task:{task_id}:composition-source:{len(t.progress_log or []) + 1}",
+            )
+            snapshot = CompositionSourceSnapshot(
+                task_id=t.id,
+                asset_id=source_asset.id,
+                source_kind="captured",
+                canonical_html_checksum=html_checksum(source.canonical_html),
+                input_asset_ids=source.input_asset_ids,
+                render_spec={"hyperframes_version": "0.7.59", "fps": 30},
+                provenance={"template_hash": html_checksum(source.canonical_html)},
+            )
+            db.add(snapshot)
+            await db.flush()
+            output["composition_source_snapshot_id"] = str(snapshot.id)
+            await db.commit()
+
+        elif node_name == "render_composition":
             if output.get("final_video_path"):
                 t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
                 media = MediaService(db, create_rustfs_storage(settings))
@@ -739,7 +782,20 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                 previous = [candidate for candidate in candidates if candidate.is_current]
                 for candidate in previous:
                     candidate.is_current = False
-                db.add(VideoCandidate(task_id=t.id, asset_id=asset.id, kind="composition", sort_order=0, version=next_version, status="pending_review"))
+                candidate = VideoCandidate(task_id=t.id, asset_id=asset.id, kind="composition", sort_order=0, version=next_version, status="pending_review")
+                db.add(candidate)
+                await db.flush()
+                snapshot = await db.scalar(select(CompositionSourceSnapshot).where(
+                    CompositionSourceSnapshot.id == output["composition_source_snapshot_id"],
+                    CompositionSourceSnapshot.task_id == task_id,
+                ))
+                if not snapshot:
+                    raise RuntimeError("composition source snapshot was not captured before render")
+                snapshot.candidate_id = candidate.id
+                snapshot.generation_record_id = await db.scalar(select(GenerationRecord.id).where(
+                    GenerationRecord.task_id == task_id,
+                    GenerationRecord.substep == "render_composition",
+                ).order_by(GenerationRecord.created_at.desc()).limit(1))
                 t.result_video_asset_id = asset.id
                 t.result_video_url = None
                 t.status = "composition_review"

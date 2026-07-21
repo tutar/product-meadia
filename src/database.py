@@ -71,6 +71,16 @@ async def ensure_schema() -> None:
             "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS "
             "generation_context JSONB NOT NULL DEFAULT '{}'::jsonb"
         ))
+        # Composition Source Snapshots are task-owned HTML Media Assets. Older
+        # development databases have a category check that predates them.
+        await connection.execute(text(
+            "ALTER TABLE media_assets DROP CONSTRAINT IF EXISTS media_assets_category_check"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE media_assets ADD CONSTRAINT media_assets_category_check "
+            "CHECK (category IN ('product_image', 'source_video', 'generated_image', 'video_clip', "
+            "'tts_audio', 'lipsync_video', 'character_image', 'final_video', 'composition_source'))"
+        ))
         await connection.execute(text(
             "ALTER TABLE video_candidates ADD COLUMN IF NOT EXISTS "
             "generation_context JSONB NOT NULL DEFAULT '{}'::jsonb"
