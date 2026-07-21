@@ -119,6 +119,18 @@ test("generation materials show the frozen model selection provenance", async ({
   await expect(materials.getByText("Selection v2 · available")).toBeVisible();
 });
 
+test("task detail exposes a revoked stage as waiting for explicit replacement", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-replacement", route => route.fulfill({ json: { id: "task-replacement", status: "script_review", type: "promo", image_count: 1, progress_log: [] } }));
+  await page.route("**/api/v1/tasks/task-replacement/script", route => route.fulfill({ json: { id: "script", task_id: "task-replacement", content: "Script", image_prompts: [], voiceover_text: "Script", status: "pending_review" } }));
+  await page.route("**/api/v1/tasks/task-replacement/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-replacement/video-candidates", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-replacement/stage-model-selections", route => route.fulfill({ json: [{ stage: "clip_video", selection_version: 2, availability_status: "replacement_required", resolution_snapshot: { provider: "google", model_id: "veo-3" } }] }));
+  await page.goto("/tasks/task-replacement");
+  await expect(page.getByRole("region", { name: "Frozen model selections" })).toContainText("clip_video: google / veo-3 · Selection v2 · replacement_required");
+});
+
 test("promo workspace reviews an ordered Shot Plan before generating keyframes", async ({ page }) => {
   let planApproved = false;
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
