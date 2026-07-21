@@ -29,6 +29,7 @@ def resolution_snapshot(configuration: ModelConfiguration) -> dict:
         "model_id": catalog.model_id,
         "capability_revision": catalog.capability_revision,
         "constraints": dict(catalog.constraints or {}),
+        "availability_status": "available",
         "uses_platform_default": configuration.uses_platform_default,
     }
 
@@ -85,6 +86,7 @@ async def freeze_stage_model_selections(
 
 async def replace_stage_model_selection(
     db: AsyncSession, task: VideoTask, owner_user_id, stage: str, replacement_configuration_id,
+    *, explicit_regeneration: bool = False,
 ) -> StageModelSelection:
     """Explicitly replace one unstarted stage; generated output is never reinterpreted."""
     if task.user_id != owner_user_id:
@@ -94,8 +96,10 @@ async def replace_stage_model_selection(
     ))
     if selection is None:
         raise HTTPException(status_code=404, detail="Stage selection not found")
-    if selection.started_at is not None and selection.availability_status == "available":
+    if selection.started_at is not None and selection.availability_status == "available" and not explicit_regeneration:
         raise HTTPException(status_code=409, detail="Stage has already started; regenerate explicitly to replace its model")
+    if explicit_regeneration and stage != "clip_video":
+        raise HTTPException(status_code=422, detail="Only clip regeneration can replace a started model selection")
     configuration = await db.scalar(select(ModelConfiguration).options(selectinload(ModelConfiguration.catalog_model)).where(
         ModelConfiguration.id == replacement_configuration_id,
         ModelConfiguration.owner_user_id == owner_user_id,

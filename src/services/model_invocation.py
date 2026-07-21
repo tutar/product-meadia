@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 import asyncio
 from uuid import UUID
+from collections.abc import Awaitable, Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -147,19 +148,29 @@ class ModelInvocationBoundary:
         selection.started_at = selection.started_at or datetime.now(timezone.utc)
         await db.commit()
 
+    async def _invoke_same_selection(
+        self, db: AsyncSession, selection: StageModelSelection, configuration: ModelConfiguration,
+        stage: str, request: Callable[[], Awaitable[object]],
+    ) -> object:
+        """Retry only the frozen configuration; never resolve a fallback model."""
+        for attempt in range(3):
+            try:
+                return await request()
+            except Exception as error:
+                if attempt == 2:
+                    await self._record_failure(db, selection, configuration)
+                    raise ModelAvailabilityFailure(f"Frozen model selection for {stage} is unavailable") from error
+        raise AssertionError("unreachable")
+
     async def complete(
         self, db: AsyncSession, task_id: UUID, stage: str, messages: list[dict], *, temperature: float = 0.7,
     ) -> InvocationResult:
         selection, catalog, credential = await self._selection_and_credential(db, task_id, stage)
         configuration = selection.model_configuration
-        try:
-            content = await self.client.complete(
+        content = await self._invoke_same_selection(db, selection, configuration, stage, lambda: self.client.complete(
                 provider=catalog.provider, model_id=catalog.model_id, credential=credential,
                 messages=messages, temperature=temperature,
-            )
-        except Exception as error:
-            await self._record_failure(db, selection, configuration)
-            raise ModelAvailabilityFailure(f"Frozen model selection for {stage} is unavailable") from error
+            ))
         await self._record_success(db, selection)
         return InvocationResult(content=content, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
@@ -168,13 +179,9 @@ class ModelInvocationBoundary:
     ) -> InvocationResult:
         selection, catalog, credential = await self._selection_and_credential(db, task_id, "keyframe_image")
         configuration = selection.model_configuration
-        try:
-            url = await self.client.image(
+        url = await self._invoke_same_selection(db, selection, configuration, "keyframe_image", lambda: self.client.image(
                 provider=catalog.provider, model_id=catalog.model_id, credential=credential, prompt=prompt, size=size, reference_image_url=reference_image_url,
-            )
-        except Exception as error:
-            await self._record_failure(db, selection, configuration)
-            raise ModelAvailabilityFailure("Frozen model selection for keyframe_image is unavailable") from error
+            ))
         await self._record_success(db, selection)
         return InvocationResult(content=url, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
@@ -183,26 +190,18 @@ class ModelInvocationBoundary:
     ) -> InvocationResult:
         selection, catalog, credential = await self._selection_and_credential(db, task_id, "voice_generation")
         configuration = selection.model_configuration
-        try:
-            audio = await self.client.speech(
+        audio = await self._invoke_same_selection(db, selection, configuration, "voice_generation", lambda: self.client.speech(
                 provider=catalog.provider, model_id=catalog.model_id, credential=credential, text=text, voice=voice,
-            )
-        except Exception as error:
-            await self._record_failure(db, selection, configuration)
-            raise ModelAvailabilityFailure("Frozen model selection for voice_generation is unavailable") from error
+            ))
         await self._record_success(db, selection)
         return InvocationResult(content=audio, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
     async def transcribe(self, db: AsyncSession, task_id: UUID, file_path: Path) -> InvocationResult:
         selection, catalog, credential = await self._selection_and_credential(db, task_id, "viral_analysis")
         configuration = selection.model_configuration
-        try:
-            transcript = await self.client.transcription(
+        transcript = await self._invoke_same_selection(db, selection, configuration, "viral_analysis", lambda: self.client.transcription(
                 provider=catalog.provider, model_id=catalog.model_id, credential=credential, file_path=file_path,
-            )
-        except Exception as error:
-            await self._record_failure(db, selection, configuration)
-            raise ModelAvailabilityFailure("Frozen model selection for viral_analysis is unavailable") from error
+            ))
         await self._record_success(db, selection)
         return InvocationResult(content=transcript, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
@@ -214,13 +213,9 @@ class ModelInvocationBoundary:
         maximum = int((catalog.constraints or {}).get("max_duration_seconds", seconds))
         if seconds > maximum:
             raise ModelAvailabilityFailure("Requested clip duration exceeds the frozen model constraint")
-        try:
-            video = await self.client.video(
+        video = await self._invoke_same_selection(db, selection, configuration, "clip_video", lambda: self.client.video(
                 provider=catalog.provider, model_id=catalog.model_id, credential=credential,
                 prompt=prompt, seconds=seconds, image_urls=image_urls,
-            )
-        except Exception as error:
-            await self._record_failure(db, selection, configuration)
-            raise ModelAvailabilityFailure("Frozen model selection for clip_video is unavailable") from error
+            ))
         await self._record_success(db, selection)
         return InvocationResult(content=video, model_resolution_snapshot=dict(selection.resolution_snapshot))
