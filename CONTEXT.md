@@ -103,11 +103,11 @@ A Generation Record whose output has passed the relevant human review and is eli
 _Avoid_: All generated output, automatically exported training row
 
 **Model Configuration**:
-A User-owned, editable definition of one model invocation, including its LiteLLM adapter, model identity, optional private endpoint, encrypted BYOK, declared capabilities, constraints, revision, and availability. A Model Configuration is the only actual model configuration used by a User's Video Tasks; a template may only prefill it.
+A User-owned, editable definition of one model invocation, including its LiteLLM adapter, model identity, optional private endpoint, optional encrypted BYOK, declared capabilities, constraints, revision, and availability. A Model Configuration is the only actual model configuration used by a User's Video Tasks; a template may only prefill it.
 _Avoid_: Global model setting, task credential, provider secret
 
 **Bring Your Own Key (BYOK)**:
-The User-owned credential used by a Model Configuration to call its provider or private endpoint. It is encrypted at rest, decrypted only by the server for a provider invocation, and never returned to the client or persisted in task data, logs, or Generation Records.
+An optional User-owned credential used by a Model Configuration to call a provider or private endpoint. It is encrypted at rest, decrypted only by the server for a provider invocation, and never returned to the client or persisted in task data, logs, or Generation Records. A credential-free private endpoint may instead authenticate at its own network or service boundary.
 _Avoid_: Exposed API key, task API key, provider key in a prompt
 
 **Stage Model Selection**:
@@ -127,11 +127,11 @@ The condition in which a stage cannot resolve or invoke its selected Model Confi
 _Avoid_: Silent fallback, hidden model substitution, unexplained quality change
 
 **Model Verification**:
-The explicit low-cost check that a User's Model Configuration can authenticate and reach its declared endpoint and perform each claimed capability where a safe probe exists. A configuration without a safe probe remains unverified until its first real invocation establishes availability.
+The explicit low-cost check that a User's Model Configuration can authenticate, where a credential is configured, and reach its declared endpoint and perform each claimed capability where a safe probe exists. A credential-free configuration or one without a safe probe remains unverified until its first real invocation establishes availability.
 _Avoid_: Test generation, assumed-valid credential, selectable unverified model
 
 **Model Invocation Boundary**:
-The application service boundary that invokes every business model through the LiteLLM Python SDK using the stage's frozen adapter, endpoint, model identity, and a transiently decrypted BYOK. A local LiteLLM proxy is not a required business routing boundary.
+The application service boundary that invokes every business model through the LiteLLM Python SDK using the stage's frozen adapter, endpoint, model identity, and a transiently decrypted BYOK when configured. A credential-free private endpoint receives no API key. A local LiteLLM proxy is not a required business routing boundary.
 _Avoid_: Per-tool provider client, global proxy-only model routing, persisted decrypted credential
 
 **Stage Model Default**:
