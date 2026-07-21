@@ -7,6 +7,7 @@ from src.models.model_configuration import (
 )
 from src.models.task import VideoTask
 from src.models.user import User
+from src.models.video_candidate import VideoCandidate
 
 
 def test_explicit_regeneration_request_can_name_the_replacement_model_configuration():
@@ -119,6 +120,39 @@ async def test_explicit_regeneration_can_replace_a_started_clip_selection(db_ses
 
     assert updated.model_configuration_id == replacement.id
     assert updated.selection_version == 2
+
+
+@pytest.mark.asyncio
+async def test_clip_regeneration_atomically_replaces_the_frozen_model_selection(db_session, monkeypatch):
+    from src.api.tasks import regenerate_video_candidate
+    from src.schemas.task import RegenerateRequest
+
+    owner = User(email="regenerate-api@example.test", hashed_password="x")
+    catalog = ProviderModelCatalog(provider="openai", model_id="veo", display_name="Veo", capabilities=["clip_video"], constraints={})
+    db_session.add_all([owner, catalog])
+    await db_session.flush()
+    original = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext="old", verification_status="verified")
+    replacement = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext="new", verification_status="verified")
+    task = VideoTask(user_id=owner.id, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([original, replacement, task])
+    await db_session.flush()
+    selection = StageModelSelection(task_id=task.id, stage="clip_video", model_configuration_id=original.id, resolution_snapshot={"model_id": "veo"}, started_at=task.created_at)
+    candidate = VideoCandidate(task_id=task.id, kind="clip", sort_order=0, status="pending_review", is_current=True)
+    db_session.add_all([selection, candidate])
+    await db_session.commit()
+
+    monkeypatch.setattr("src.tasks.video_tasks.run_video_task.delay", lambda _task_id: None)
+    response = await regenerate_video_candidate(
+        task.id, candidate.id, RegenerateRequest(feedback="Use a calmer camera move.", model_configuration_id=replacement.id), db_session, owner,
+    )
+    await db_session.refresh(selection)
+    await db_session.refresh(candidate)
+
+    assert response == {"status": "queued"}
+    assert selection.model_configuration_id == replacement.id
+    assert selection.selection_version == 2
+    assert candidate.is_current is False
+    assert candidate.status == "rejected"
 
 
 @pytest.mark.asyncio
