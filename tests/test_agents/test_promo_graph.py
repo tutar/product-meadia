@@ -19,6 +19,7 @@ async def test_promo_graph_structure():
     assert "generate_video_clips" in nodes
     assert "generate_voiceover" in nodes
     assert "composite_video" in nodes
+    assert "render_composition" in nodes
 
 
 def test_promo_graph_has_no_checkpointer_at_module_level():
