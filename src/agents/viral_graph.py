@@ -22,11 +22,12 @@ Return ONLY JSON: {{"script": "...", "voiceover": "...", "image_prompts": ["..."
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html><head><style>
   body {{ margin:0; background:#000; font-family:sans-serif; }}
+  .composition {{ position:relative; width:1152px; height:768px; overflow:hidden; }}
   .clip {{ position:absolute; width:100%; height:100%; object-fit:cover; }}
   .subtitle {{ position:absolute; bottom:{subtitle_offset}%; width:100%; text-align:center; color:#fff; font-size:{subtitle_size}px; text-shadow:0 2px 8px rgba(0,0,0,0.8); }}
 </style></head><body>
-<div data-composition-id="viral-video" data-start="0" data-duration="{total_duration}" data-width="1152" data-height="768">
-  <audio id="voiceover" src="{audio_url}" data-start="0" data-duration="{total_duration}" data-track-index="10" data-volume="1"></audio>
+<div class="composition" data-composition-id="viral-video" data-start="0" data-duration="{total_duration}" data-width="1152" data-height="768">
+  <audio id="voiceover" src="{audio_url}" data-start="0" data-track-index="10" data-volume="1" preload="auto"></audio>
   {video_elements}
   {subtitle_elements}
 </div>
@@ -143,7 +144,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             duration = min(clip_duration, total_duration - i * clip_duration)
             video_elements += (
                 f'<video id="clip-{i}" class="clip" src="{url}" data-start="{i * clip_duration}" '
-                f'data-duration="{duration}" data-track-index="0" muted playsinline></video>\n'
+                f'data-duration="{duration}" data-track-index="0" muted playsinline preload="auto"></video>\n'
             )
         subtitle_elements = ""
         for w in state.get("tts_words", []):

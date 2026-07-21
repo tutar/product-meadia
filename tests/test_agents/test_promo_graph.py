@@ -181,9 +181,14 @@ async def test_promo_composition_keeps_clip_windows_at_their_planned_duration_wh
         render.return_value = "/tmp/final.mp4"
         async for _ in build_promo_graph(interrupt_before=[]).astream(state, {"configurable": {"thread_id": "timing"}}):
             pass
-    assert tts.await_args.kwargs["target_duration_seconds"] == 5
+    assert tts.await_args.kwargs == {}
     assert 'data-duration="5.0" data-track-index="0"' in render.await_args.args[0]
     assert 'data-duration="46.4" data-track-index="0"' not in render.await_args.args[0]
+    html = render.await_args.args[0]
+    assert '<video id="clip-0" class="clip"' in html
+    assert 'preload="auto"' in html
+    assert '<audio id="voiceover" src="https://audio" data-start="0" data-duration=' not in html
+    assert '.composition { position:relative; width:1152px; height:768px; overflow:hidden; }' in html
 
 
 @pytest.mark.asyncio

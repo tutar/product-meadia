@@ -27,7 +27,7 @@ async def test_viral_retry_reuses_completed_media():
         patch("src.agents.viral_graph.generate_image", new_callable=AsyncMock) as image,
         patch("src.agents.viral_graph.generate_video", new_callable=AsyncMock) as video,
         patch("src.agents.viral_graph.generate_tts", new_callable=AsyncMock) as tts,
-        patch("src.agents.viral_graph.render_hyperframes", new_callable=AsyncMock, return_value="final.mp4"),
+        patch("src.agents.viral_graph.render_hyperframes", new_callable=AsyncMock, return_value="final.mp4") as render,
     ):
         await graph.ainvoke(state)
 
@@ -35,6 +35,11 @@ async def test_viral_retry_reuses_completed_media():
     image.assert_not_called()
     video.assert_not_called()
     tts.assert_not_called()
+    html = render.await_args.args[0]
+    assert '<video id="clip-0" class="clip"' in html
+    assert 'preload="auto"' in html
+    assert '<audio id="voiceover" src="audio.mp3" data-start="0" data-duration=' not in html
+    assert '.composition { position:relative; width:1152px; height:768px; overflow:hidden; }' in html
 
 
 def test_viral_graph_structure():

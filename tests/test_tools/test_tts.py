@@ -48,6 +48,22 @@ async def test_generate_tts_speeds_up_abnormally_slow_provider_audio():
 
 
 @pytest.mark.asyncio
+async def test_generate_tts_does_not_allow_a_planned_visual_duration_to_slow_narration():
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(24000)
+        wav_file.writeframes(b"\0\0" * (24000 * 4))
+    mock_response = MagicMock(content=buffer.getvalue())
+
+    with patch("src.tools.tts.client.audio.speech.create", AsyncMock(return_value=mock_response)):
+        result = await generate_tts("Hello", target_duration_seconds=5)
+
+    assert result["tts_duration_seconds"] == pytest.approx(0.5, abs=0.03)
+
+
+@pytest.mark.asyncio
 async def test_generate_tts_retries_then_raises():
     mock_create = AsyncMock(side_effect=Exception("TTS down"))
     with patch("src.tools.tts.client.audio.speech.create", mock_create):

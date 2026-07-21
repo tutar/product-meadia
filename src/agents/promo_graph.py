@@ -25,11 +25,12 @@ SHOT_PLAN_SYSTEM = """Return JSON with shots: an ordered list. Each shot has nar
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html><head><style>
   body {{ margin:0; background:#000; font-family:sans-serif; }}
+  .composition {{ position:relative; width:1152px; height:768px; overflow:hidden; }}
   .clip {{ position:absolute; width:100%; height:100%; object-fit:cover; }}
   .subtitle {{ position:absolute; bottom:{subtitle_offset}%; width:100%; text-align:center; color:#fff; font-size:{subtitle_size}px; text-shadow:0 2px 8px rgba(0,0,0,0.8); }}
 </style></head><body>
-<div data-composition-id="promo-video" data-start="0" data-duration="{total_duration}" data-width="1152" data-height="768">
-  <audio id="voiceover" src="{audio_url}" data-start="0" data-duration="{total_duration}" data-track-index="10" data-volume="1"></audio>
+<div class="composition" data-composition-id="promo-video" data-start="0" data-duration="{total_duration}" data-width="1152" data-height="768">
+  <audio id="voiceover" src="{audio_url}" data-start="0" data-track-index="10" data-volume="1" preload="auto"></audio>
   {video_elements}
   {subtitle_elements}
 </div>
@@ -232,9 +233,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("tts_audio_url") and not review_guidance(state, "composition"):
             return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"]}
         voiceover = state.get("voiceover_text") or state.get("edited_script_content") or state["script_content"]
-        segments = state.get("clip_segments") or clip_segments_for_shot_plan(state.get("shot_plan", []))
-        planned_duration = sum(float(segment.get("target_duration_seconds") or 0) for segment in segments)
-        result = await generate_tts(voiceover, **({"target_duration_seconds": planned_duration} if planned_duration else {}))
+        result = await generate_tts(voiceover)
         return {
             "tts_audio_url": result["audio_url"],
             "tts_words": result["words"],
@@ -259,7 +258,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             duration = planned_durations[i]
             video_elements += (
                 f'<video id="clip-{i}" class="clip" src="{url}" data-start="{start}" '
-                f'data-duration="{duration}" data-track-index="0" muted playsinline></video>\n'
+                f'data-duration="{duration}" data-track-index="0" muted playsinline preload="auto"></video>\n'
             )
             editing_blueprint.append({
                 "clip_index": i,

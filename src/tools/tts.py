@@ -76,7 +76,10 @@ async def generate_tts(text: str, *, target_duration_seconds: float | None = Non
         voice="default",
     )
     audio = response.content
-    target_duration = target_duration_seconds or estimate_speech_duration_seconds(text)
+    natural_duration = estimate_speech_duration_seconds(text)
+    # A Shot Plan controls visual pacing, not speech rate. Never let a longer
+    # visual plan make a slow provider response appear acceptable.
+    target_duration = min(target_duration_seconds, natural_duration) if target_duration_seconds else natural_duration
     audio = normalize_tts_audio(audio, target_duration)
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(audio)
