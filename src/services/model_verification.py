@@ -31,6 +31,10 @@ def is_selectable(configuration: ModelConfiguration) -> bool:
 class SafeModelVerifier:
     async def verify_configuration(self, configuration: ModelConfiguration) -> VerificationResult:
         """Resolve the credential transiently inside the server-side probe boundary."""
+        if not configuration.credential_ciphertext:
+            # A credential-free private endpoint cannot be authenticated by a
+            # safe probe. Its first real invocation establishes availability.
+            return VerificationResult(False, NO_CREDENTIAL_PROBE)
         credential = decrypt_credential(configuration.credential_ciphertext)
         template = configuration.catalog_model
         return await self.verify(

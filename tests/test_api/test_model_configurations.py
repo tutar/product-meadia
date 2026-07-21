@@ -43,7 +43,7 @@ async def test_user_can_create_and_edit_a_private_openai_compatible_model_withou
 
 @pytest.mark.asyncio
 async def test_user_can_create_a_private_model_that_does_not_require_a_credential(db_session):
-    from src.api.model_configurations import create_model_configuration
+    from src.api.model_configurations import create_model_configuration, verify_model_configuration
     from src.schemas.model_configuration import ModelConfigurationCreate
 
     user = User(email="unauthenticated-private-model@example.test", hashed_password="x")
@@ -60,6 +60,10 @@ async def test_user_can_create_a_private_model_that_does_not_require_a_credentia
 
     assert configuration.model_id == "local-tts"
     assert configuration.verification_status == "unverified"
+
+    verified = await verify_model_configuration(configuration.id, db_session, user)
+    assert verified.verification_status == "unverified"
+    assert "No credential is configured" in verified.verification_error
 
 
 def test_private_model_endpoint_requires_https_when_it_is_public():
