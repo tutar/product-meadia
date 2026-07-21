@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import case, delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -21,12 +22,13 @@ from src.models.review_feedback import ReviewFeedback
 from src.models.viral_analysis import ViralAnalysis
 from src.models.media_asset import MediaAsset
 from src.models.generation_record import GenerationRecord
+from src.models.composition_source import CompositionSourceSnapshot
 from src.models.model_configuration import StageModelSelection
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate, CreativeBriefResponse, CreativeBriefUpdate,
     ShotPlanResponse, ShotPlanUpdate, EditingBlueprintResponse,
     ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
-    GenerationRecordResponse, GenerationRecordExportRequest,
+    GenerationRecordResponse, GenerationRecordExportRequest, CompositionSourceResponse,
     StageModelSelectionResponse, StageModelSelectionUpdate,
 )
 from src.auth.deps import get_current_user
@@ -35,6 +37,8 @@ from src.tasks.recovery import is_stale_task
 from src.services.product_context import build_product_snapshot
 from src.api.media import get_media_service
 from src.services.media_service import MediaService
+from src.services.composition_sources import materialize_html, html_checksum
+from src.tools.render import render_hyperframes
 from src.services.stage_model_selections import ModelSelectionUnavailableError, freeze_stage_model_selections
 from src.services.stage_model_selections import replace_stage_model_selection
 
@@ -305,6 +309,162 @@ async def export_generation_records(
         record.provider_payload = sanitized_provider_payload(record.provider_payload)
         record.media_asset_ids = [str(asset_id) for asset_id in record.media_asset_ids]
     return records
+
+
+@router.get("/{task_id}/video-candidates/{candidate_id}/composition-source", response_model=CompositionSourceResponse)
+async def get_composition_source(
+    task_id: UUID,
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    await owned_task(db, user, task_id)
+    snapshot = await db.scalar(select(CompositionSourceSnapshot).where(
+        CompositionSourceSnapshot.task_id == task_id,
+        CompositionSourceSnapshot.candidate_id == candidate_id,
+    ))
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Composition source snapshot not found")
+    return CompositionSourceResponse(
+        id=snapshot.id,
+        task_id=snapshot.task_id,
+        candidate_id=snapshot.candidate_id,
+        asset_id=snapshot.asset_id,
+        source_kind=snapshot.source_kind,
+        canonical_html_checksum=snapshot.canonical_html_checksum,
+        input_asset_ids=[str(asset_id) for asset_id in snapshot.input_asset_ids],
+        render_spec=snapshot.render_spec,
+        provenance=snapshot.provenance,
+        reconstruction_notes=snapshot.reconstruction_notes,
+    )
+
+
+async def _owned_composition_source(db: AsyncSession, user: User, task_id: UUID, candidate_id: UUID) -> CompositionSourceSnapshot:
+    await owned_task(db, user, task_id)
+    snapshot = await db.scalar(select(CompositionSourceSnapshot).where(
+        CompositionSourceSnapshot.task_id == task_id,
+        CompositionSourceSnapshot.candidate_id == candidate_id,
+    ))
+    if not snapshot or not snapshot.asset_id:
+        raise HTTPException(status_code=404, detail="Composition source snapshot not found")
+    return snapshot
+
+
+@router.get("/{task_id}/video-candidates/{candidate_id}/composition-source/download")
+async def download_composition_source(
+    task_id: UUID,
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+    media: MediaService = Depends(get_media_service),
+):
+    snapshot = await _owned_composition_source(db, user, task_id, candidate_id)
+    return RedirectResponse(await media.access_url(snapshot.asset_id, user.id), status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.get("/{task_id}/video-candidates/{candidate_id}/composition-source/preview", response_class=HTMLResponse)
+async def preview_composition_source(
+    task_id: UUID,
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+    media: MediaService = Depends(get_media_service),
+):
+    snapshot = await _owned_composition_source(db, user, task_id, candidate_id)
+    asset = await media.get_owned_asset(snapshot.asset_id, user.id)
+    canonical_html = (await media.storage.download(asset.bucket, asset.object_key)).decode("utf-8")
+    html = await materialize_html(canonical_html, media, user.id)
+    return HTMLResponse(html, headers={
+        "Content-Security-Policy": "default-src 'self' https: http: data:; script-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'",
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
+@router.post("/{task_id}/video-candidates/{candidate_id}/composition-source/replay", response_model=VideoCandidateResponse)
+async def replay_composition_source(
+    task_id: UUID,
+    candidate_id: UUID,
+    db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+    media: MediaService = Depends(get_media_service),
+):
+    """Render a source snapshot into a new candidate without mutating its source."""
+    snapshot = await _owned_composition_source(db, user, task_id, candidate_id)
+    task = await owned_task(db, user, task_id)
+    asset = await media.get_owned_asset(snapshot.asset_id, user.id)
+    canonical_html = (await media.storage.download(asset.bucket, asset.object_key)).decode("utf-8")
+    path = await render_hyperframes(await materialize_html(canonical_html, media, user.id))
+    candidates = (await db.scalars(select(VideoCandidate).where(
+        VideoCandidate.task_id == task_id, VideoCandidate.kind == "composition"
+    ))).all()
+    next_version = max((item.version for item in candidates), default=0) + 1
+    output_asset = await media.create_asset(
+        owner_user_id=user.id,
+        category="final_video",
+        data=Path(path).read_bytes(),
+        content_type="video/mp4",
+        filename=f"{task_id}-final-replay.mp4",
+        task_id=task.id,
+        source_provider="hyperframes-replay",
+        idempotency_key=f"task:{task_id}:final-video:replay:{next_version}",
+    )
+    for prior in candidates:
+        if prior.is_current:
+            prior.is_current = False
+    replay = VideoCandidate(
+        task_id=task.id,
+        asset_id=output_asset.id,
+        kind="composition",
+        sort_order=0,
+        version=next_version,
+        status="pending_review",
+        recomposed_from_candidate_id=candidate_id,
+    )
+    db.add(replay)
+    await db.flush()
+    db.add(CompositionSourceSnapshot(
+        task_id=task.id,
+        candidate_id=replay.id,
+        asset_id=snapshot.asset_id,
+        source_kind=snapshot.source_kind,
+        canonical_html_checksum=snapshot.canonical_html_checksum,
+        input_asset_ids=snapshot.input_asset_ids,
+        render_spec=snapshot.render_spec,
+        provenance={**snapshot.provenance, "recomposed_from_candidate_id": str(candidate_id)},
+        reconstruction_notes=snapshot.reconstruction_notes,
+    ))
+    task.result_video_asset_id = output_asset.id
+    task.result_video_url = None
+    task.status = "composition_review"
+    await db.commit()
+    return VideoCandidateResponse.model_validate(replay)
+
+
+@router.post("/{task_id}/video-candidates/{candidate_id}/composition-source/reconstruct", response_model=CompositionSourceResponse)
+async def reconstruct_composition_source(
+    task_id: UUID, candidate_id: UUID, db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service),
+):
+    """Create an explicitly inferred source for a legacy candidate with no capture."""
+    task = await owned_task(db, user, task_id)
+    if await db.scalar(select(CompositionSourceSnapshot).where(CompositionSourceSnapshot.candidate_id == candidate_id)):
+        raise HTTPException(status_code=409, detail="Composition source snapshot already exists")
+    blueprint = await db.scalar(select(EditingBlueprint).where(EditingBlueprint.task_id == task_id))
+    clips = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "clip", VideoCandidate.is_current.is_(True), VideoCandidate.asset_id.is_not(None)).order_by(VideoCandidate.sort_order))).all()
+    audio = await db.scalar(select(MediaAsset).where(MediaAsset.task_id == task_id, MediaAsset.category == "tts_audio", MediaAsset.status == "available").order_by(MediaAsset.created_at.desc()))
+    if not blueprint or not clips or not audio:
+        raise HTTPException(status_code=422, detail="Insufficient retained inputs to reconstruct composition source")
+    entries = blueprint.entries
+    if len(entries) != len(clips):
+        raise HTTPException(status_code=422, detail="Editing Blueprint no longer matches retained clip candidates")
+    duration = sum(float(entry.get("duration_seconds", 0)) for entry in entries)
+    videos = "".join(f'<video id="clip-{index}" src="asset://{clip.asset_id}" data-start="{entry["start_seconds"]}" data-duration="{entry["duration_seconds"]}" data-track-index="0" muted playsinline></video>' for index, (clip, entry) in enumerate(zip(clips, entries)))
+    canonical_html = f'<div data-composition-id="reconstructed-{candidate_id}" data-duration="{duration}" data-width="1152" data-height="768"><audio id="voiceover" src="asset://{audio.id}" data-start="0" data-track-index="10"></audio>{videos}</div>'
+    asset = await media.create_asset(owner_user_id=user.id, category="composition_source", data=canonical_html.encode(), content_type="text/html; charset=utf-8", filename=f"{task_id}-reconstructed-source.html", task_id=task.id, source_provider="composition-reconstruction", idempotency_key=f"candidate:{candidate_id}:reconstructed-source")
+    snapshot = CompositionSourceSnapshot(task_id=task.id, candidate_id=candidate_id, asset_id=asset.id, source_kind="reconstructed", canonical_html_checksum=html_checksum(canonical_html), input_asset_ids=[*[str(clip.asset_id) for clip in clips], str(audio.id)], render_spec={"width": 1152, "height": 768}, provenance={"source_candidate_id": str(candidate_id), "editing_blueprint_id": str(blueprint.id), "input_selection": "current_candidates"}, reconstruction_notes="Reconstructed after the original HTML was unavailable; uses current retained clip candidates and latest retained voiceover.")
+    db.add(snapshot)
+    await db.commit()
+    return CompositionSourceResponse(id=snapshot.id, task_id=snapshot.task_id, candidate_id=snapshot.candidate_id, asset_id=snapshot.asset_id, source_kind=snapshot.source_kind, canonical_html_checksum=snapshot.canonical_html_checksum, input_asset_ids=snapshot.input_asset_ids, render_spec=snapshot.render_spec, provenance=snapshot.provenance, reconstruction_notes=snapshot.reconstruction_notes)
 
 
 @router.get("/{task_id}/script", response_model=ScriptResponse)

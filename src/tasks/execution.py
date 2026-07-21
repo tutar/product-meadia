@@ -14,6 +14,7 @@ ARTIFACT_STATE_KEYS = (
     "lipsync_video_asset_id",
     "character_image_asset_id",
     "final_video_asset_id",
+    "composition_source_snapshot_id",
 )
 
 NODE_TO_STAGE = {
@@ -28,6 +29,8 @@ NODE_TO_STAGE = {
     "generate_tts_and_lipsync": "video_gen",
     "composite_video": "compositing",
     "composite": "compositing",
+    "render_composition": "compositing",
+    "render_composition": "compositing",
 }
 
 FEEDBACK_TARGET_TO_STAGE = {

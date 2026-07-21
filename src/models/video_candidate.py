@@ -16,6 +16,7 @@ class VideoCandidate(Base, UUIDMixin, TimestampMixin):
     status = Column(String(20), nullable=False, default="pending_review")
     is_current = Column(Boolean, nullable=False, default=True)
     generation_context = Column(JSONB, nullable=False, default=dict)
+    recomposed_from_candidate_id = Column(UUID(as_uuid=True), ForeignKey("video_candidates.id", ondelete="SET NULL"), nullable=True)
 
     task = relationship("VideoTask", back_populates="video_candidates")
     asset = relationship("MediaAsset")

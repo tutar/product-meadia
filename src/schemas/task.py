@@ -149,6 +149,17 @@ class GenerationRecordExportRequest(BaseModel):
     record_ids: list[UUID]
 
 
+class CompositionSourceResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    candidate_id: UUID
+    asset_id: UUID | None = None
+    source_kind: str
+    canonical_html_checksum: str
+    input_asset_ids: list[str]
+    render_spec: dict
+    provenance: dict
+    reconstruction_notes: str | None = None
 class StageModelSelectionUpdate(BaseModel):
     model_configuration_id: UUID
 

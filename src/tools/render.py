@@ -1,8 +1,23 @@
 import asyncio
 import tempfile
 import os
+import subprocess
 from langfuse import observe
 from src.tasks.generation_records import record_generation
+
+
+def renderer_environment() -> dict[str, str]:
+    """Non-sensitive runtime identity frozen with a composition source."""
+    def version(command: list[str], fallback: str) -> str:
+        try:
+            return subprocess.check_output(command, text=True, stderr=subprocess.DEVNULL).strip()
+        except (OSError, subprocess.CalledProcessError):
+            return fallback
+    return {
+        "hyperframes_version": version(["hyperframes", "--version"], "unavailable"),
+        "node_version": version(["node", "--version"], "unavailable"),
+        "browser_version": os.environ.get("HYPERFRAMES_BROWSER_VERSION", "managed-by-hyperframes"),
+    }
 
 
 @observe(name="render_hyperframes")

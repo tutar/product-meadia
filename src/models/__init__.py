@@ -16,6 +16,7 @@ from src.models.main_image_candidate import MainImageCandidate
 from src.models.outbox_event import OutboxEvent
 from src.models.review_feedback import ReviewFeedback
 from src.models.generation_record import GenerationRecord
+from src.models.composition_source import CompositionSourceSnapshot
 from src.models.model_configuration import ProviderModelCatalog, ModelConfiguration, StageModelDefault, StageModelSelection
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "CategoryAttribute",
     "GeneratedImage",
     "GenerationRecord",
+    "CompositionSourceSnapshot",
     "MainImageCandidate",
     "ModelConfiguration",
     "OutboxEvent",

@@ -51,6 +51,8 @@ class VideoAgentState(TypedDict):
 
     hyperframes_html: str
     final_video_path: str
+    composition_source_snapshot_id: str
+    composition_source_snapshot_id: str
 
     review_approved: bool
     script_approved: bool

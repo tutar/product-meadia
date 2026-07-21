@@ -162,8 +162,13 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             subtitle_offset=options["subtitle_offset"],
             subtitle_size=options["subtitle_size"],
         )
-        path = await render_hyperframes(html)
-        return {"hyperframes_html": html, "final_video_path": path}
+        return {"hyperframes_html": html}
+
+    async def render_composition(state: VideoAgentState) -> dict:
+        return {
+            "final_video_path": await render_hyperframes(state["hyperframes_html"]),
+            "composition_source_snapshot_id": state.get("composition_source_snapshot_id", ""),
+        }
 
     graph.add_node("analyze_source", tracked_node("analyze_source", analyze_source))
     graph.add_node("wait_viral_confirm", wait_viral_confirm)
@@ -173,6 +178,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_node("wait_image_review", wait_image_review)
     graph.add_node("generate_clips_and_voiceover", tracked_node("generate_clips_and_voiceover", generate_clips_and_voiceover))
     graph.add_node("composite", tracked_node("composite", composite))
+    graph.add_node("render_composition", tracked_node("render_composition", render_composition))
 
     graph.set_entry_point("analyze_source")
     graph.add_edge("analyze_source", "wait_viral_confirm")
@@ -182,7 +188,8 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_edge("generate_images", "wait_image_review")
     graph.add_edge("wait_image_review", "generate_clips_and_voiceover")
     graph.add_edge("generate_clips_and_voiceover", "composite")
-    graph.add_edge("composite", END)
+    graph.add_edge("composite", "render_composition")
+    graph.add_edge("render_composition", END)
 
     return graph.compile(
         checkpointer=checkpointer,

@@ -38,3 +38,4 @@ async def test_ensure_schema_adds_legacy_product_columns(monkeypatch):
     assert any("ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS product_snapshot JSONB" in statement for statement in statements)
     assert any("ALTER TABLE video_tasks DROP CONSTRAINT IF EXISTS video_tasks_status_check" in statement for statement in statements)
     assert any("video_review" in statement and "composition_review" in statement for statement in statements)
+    assert any("composition_source" in statement for statement in statements)

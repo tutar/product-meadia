@@ -310,8 +310,13 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             subtitle_offset=options["subtitle_offset"],
             subtitle_size=options["subtitle_size"],
         )
-        path = await render_hyperframes(html)
-        return {"hyperframes_html": html, "final_video_path": path, "clip_segments": segments, "editing_blueprint": editing_blueprint}
+        return {"hyperframes_html": html, "clip_segments": segments, "editing_blueprint": editing_blueprint}
+
+    async def render_composition(state: VideoAgentState) -> dict:
+        return {
+            "final_video_path": await render_hyperframes(state["hyperframes_html"]),
+            "composition_source_snapshot_id": state.get("composition_source_snapshot_id", ""),
+        }
 
     graph.add_node("generate_creative_brief", tracked_node("generate_creative_brief", generate_creative_brief))
     graph.add_node("wait_creative_brief_review", wait_creative_brief_review)
@@ -331,6 +336,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_node("generate_video_clips", tracked_node("generate_video_clips", generate_video_clips))
     graph.add_node("generate_voiceover", tracked_node("generate_voiceover", generate_voiceover))
     graph.add_node("composite_video", tracked_node("composite_video", composite_video))
+    graph.add_node("render_composition", tracked_node("render_composition", render_composition))
 
     graph.set_entry_point("generate_creative_brief")
     graph.add_edge("generate_creative_brief", "wait_creative_brief_review")
@@ -343,7 +349,8 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_edge("wait_image_review", "generate_video_clips")
     graph.add_edge("generate_video_clips", "generate_voiceover")
     graph.add_edge("generate_voiceover", "composite_video")
-    graph.add_edge("composite_video", END)
+    graph.add_edge("composite_video", "render_composition")
+    graph.add_edge("render_composition", END)
 
     return graph.compile(
         checkpointer=checkpointer,
