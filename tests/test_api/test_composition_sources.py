@@ -1,10 +1,11 @@
 import pytest
 from unittest.mock import AsyncMock
 
-from src.api.tasks import get_composition_source, replay_composition_source
+from src.api.tasks import get_composition_source, replay_composition_source, reconstruct_composition_source
 from src.media.storage import memory_storage
 from src.services.media_service import MediaService
 from src.models.media_asset import MediaAsset
+from src.models.editing_blueprint import EditingBlueprint
 from src.models.composition_source import CompositionSourceSnapshot
 from src.models.task import VideoTask
 from src.models.user import User
@@ -87,3 +88,23 @@ async def test_replay_creates_a_new_candidate_and_keeps_its_source(tmp_path, db_
     assert original.is_current is False
     current = await db_session.get(VideoCandidate, replay.id)
     assert current.recomposed_from_candidate_id == original.id
+
+
+@pytest.mark.asyncio
+async def test_reconstruction_is_explicitly_marked_and_records_inferred_inputs(db_session):
+    owner = User(email="legacy@composition-source.test", hashed_password="x")
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, task]); await db_session.flush()
+    legacy = VideoCandidate(task_id=task.id, kind="composition", sort_order=0, version=1)
+    db_session.add(legacy)
+    storage = memory_storage(); media = MediaService(db_session, storage, bucket="media")
+    clip_asset = await media.create_asset(owner_user_id=owner.id, category="video_clip", data=b"clip", content_type="video/mp4", filename="clip.mp4", task_id=task.id)
+    audio_asset = await media.create_asset(owner_user_id=owner.id, category="tts_audio", data=b"audio", content_type="audio/wav", filename="voice.wav", task_id=task.id)
+    db_session.add_all([VideoCandidate(task_id=task.id, asset_id=clip_asset.id, kind="clip", sort_order=0, version=1), EditingBlueprint(task_id=task.id, entries=[{"start_seconds": 0, "duration_seconds": 5}])])
+    await db_session.commit()
+
+    source = await reconstruct_composition_source(task.id, legacy.id, db=db_session, user=owner, media=media)
+
+    assert source.source_kind == "reconstructed"
+    assert "current retained clip candidates" in source.reconstruction_notes
+    assert source.provenance["input_selection"] == "current_candidates"
