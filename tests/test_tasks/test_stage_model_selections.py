@@ -1,4 +1,5 @@
 import pytest
+from uuid import uuid4
 from sqlalchemy import select
 
 from src.models.model_configuration import (
@@ -6,6 +7,15 @@ from src.models.model_configuration import (
 )
 from src.models.task import VideoTask
 from src.models.user import User
+
+
+def test_explicit_regeneration_request_can_name_the_replacement_model_configuration():
+    from src.schemas.task import RegenerateRequest
+
+    replacement = uuid4()
+    request = RegenerateRequest(feedback="Use a calmer camera move.", model_configuration_id=replacement)
+
+    assert request.model_configuration_id == replacement
 
 
 @pytest.mark.asyncio
@@ -84,6 +94,31 @@ async def test_user_can_replace_only_an_unstarted_frozen_stage_selection(db_sess
     with pytest.raises(HTTPException, match="already started") as error:
         await replace_stage_model_selection(db_session, task, owner.id, "scriptwriting", previous.id)
     assert error.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_explicit_regeneration_can_replace_a_started_clip_selection(db_session):
+    from src.services.stage_model_selections import replace_stage_model_selection
+
+    owner = User(email="regenerate-selection@example.test", hashed_password="x")
+    catalog = ProviderModelCatalog(provider="openai", model_id="veo", display_name="Veo", capabilities=["clip_video"], constraints={})
+    db_session.add_all([owner, catalog])
+    await db_session.flush()
+    previous = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext="old", verification_status="verified")
+    replacement = ModelConfiguration(owner_user_id=owner.id, catalog_model_id=catalog.id, credential_ciphertext="new", verification_status="verified")
+    task = VideoTask(user_id=owner.id, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([previous, replacement, task])
+    await db_session.flush()
+    selection = StageModelSelection(task_id=task.id, stage="clip_video", model_configuration_id=previous.id, resolution_snapshot={"model_id": "veo"}, started_at=task.created_at)
+    db_session.add(selection)
+    await db_session.commit()
+
+    updated = await replace_stage_model_selection(
+        db_session, task, owner.id, "clip_video", replacement.id, explicit_regeneration=True,
+    )
+
+    assert updated.model_configuration_id == replacement.id
+    assert updated.selection_version == 2
 
 
 @pytest.mark.asyncio

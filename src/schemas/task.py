@@ -86,6 +86,7 @@ class CandidateReview(BaseModel):
 
 class RegenerateRequest(BaseModel):
     feedback: str
+    model_configuration_id: UUID | None = None
 
 
 class VideoCandidateResponse(BaseModel):
