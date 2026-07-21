@@ -41,3 +41,23 @@ async def test_task_owner_reads_a_candidate_composition_source_without_access_ur
     assert source.input_asset_ids == ["11111111-1111-1111-1111-111111111111"]
     assert source.render_spec == {"hyperframes_version": "0.7.59", "fps": 30}
     assert "access_url" not in source.model_fields_set
+
+
+@pytest.mark.asyncio
+async def test_non_owner_cannot_read_a_candidate_composition_source(db_session):
+    owner = User(email="owner-private@composition-source.test", hashed_password="x")
+    outsider = User(email="outsider@composition-source.test", hashed_password="x")
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, outsider, task])
+    await db_session.flush()
+    candidate = VideoCandidate(task_id=task.id, kind="composition", sort_order=0, version=1)
+    db_session.add(candidate)
+    await db_session.flush()
+    db_session.add(CompositionSourceSnapshot(task_id=task.id, candidate_id=candidate.id, source_kind="captured", canonical_html_checksum="2a" * 32, input_asset_ids=[], render_spec={}, provenance={}))
+    await db_session.commit()
+
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as error:
+        await get_composition_source(task.id, candidate.id, db=db_session, user=outsider)
+
+    assert error.value.status_code == 404
