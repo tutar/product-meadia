@@ -112,6 +112,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const [generationStage, setGenerationStage] = useState<string | null>(null);
   const [generationRecords, setGenerationRecords] = useState<any[]>([]);
   const [selectedGenerationRecord, setSelectedGenerationRecord] = useState<any>(null);
+  const [sourcePreview, setSourcePreview] = useState<string | null>(null);
   const videoViewerRef = useRef<HTMLVideoElement | null>(null);
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
@@ -500,7 +501,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
               </div>}
               <div className="video-review-actions">
                 {candidate.kind === "composition" && <>
-                  <button className="btn btn-ghost btn-sm" onClick={() => window.open(`/api/v1/tasks/${id}/video-candidates/${candidate.id}/composition-source/preview`, "_blank", "noopener,noreferrer")}>Preview source</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSourcePreview(`/api/v1/tasks/${id}/video-candidates/${candidate.id}/composition-source/preview`)}>Preview source</button>
                   <a className="btn btn-ghost btn-sm" href={`/api/v1/tasks/${id}/video-candidates/${candidate.id}/composition-source/download`}>Download HTML</a>
                   <button className="btn btn-ghost btn-sm" onClick={() => runAction(`replay:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/replay`); await fetchData(); })}>Replay source</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => runAction(`reconstruct:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/reconstruct`); await fetchData(); })}>Reconstruct source</button>
@@ -516,6 +517,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </section>
       )}
 
+      {sourcePreview && <section className="card mb-6" aria-label="Composition source preview"><button className="btn btn-ghost btn-sm" onClick={() => setSourcePreview(null)}>Close preview</button><iframe title="Composition source preview" src={sourcePreview} sandbox="allow-same-origin" style={{ width: "100%", height: 560, border: 0, marginTop: 12 }} /></section>}
       {editingBlueprint && (
         <div className="card mb-6 media-keyframe-review">
           <h3 className="mb-4">{t("task.editingBlueprint")}</h3>
