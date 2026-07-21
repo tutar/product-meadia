@@ -53,7 +53,8 @@ export default function PreferencesPage() {
   const addConfiguration = async () => {
     setModelError("");
     try {
-      await modelConfigurationsApi.create(customModel ? { display_name: customName, adapter: "openai_compatible", api_base: customApiBase, model_id: customModelId, capabilities: customCapabilities, credential } : { catalog_model_id: catalogModelId, credential });
+      const optionalCredential = credential || undefined;
+      await modelConfigurationsApi.create(customModel ? { display_name: customName, adapter: "openai_compatible", api_base: customApiBase, model_id: customModelId, capabilities: customCapabilities, credential: optionalCredential } : { catalog_model_id: catalogModelId, credential: optionalCredential });
       setCredential(""); await loadModels();
     } catch { setModelError("Unable to save the model configuration. The credential was not retained in this page."); }
   };
@@ -115,8 +116,8 @@ export default function PreferencesPage() {
           </> : <label className="model-field"><span>{t("modelConfigurations.catalogModel")}</span><select className="select" aria-label={t("modelConfigurations.catalogModel")} value={catalogModelId} onChange={event => setCatalogModelId(event.target.value)}>
             {catalog.map(model => <option key={model.id} value={model.id}>{model.provider} / {model.display_name}</option>)}
           </select></label>}
-          <label className="model-field"><span>{t("modelConfigurations.credential")}</span><input className="input" aria-label={t("modelConfigurations.credential")} type="password" value={credential} onChange={event => setCredential(event.target.value)} autoComplete="off" /></label>
-          <button className="btn btn-primary" type="button" disabled={customModel ? !customName || !customApiBase || !customModelId || !customCapabilities.length || !credential : !catalogModelId || !credential} onClick={() => void addConfiguration()}>{t("modelConfigurations.add")}</button>
+          <label className="model-field"><span>{t("modelConfigurations.credential")} <small>{t("modelConfigurations.optional")}</small></span><input className="input" aria-label={t("modelConfigurations.credential")} type="password" value={credential} onChange={event => setCredential(event.target.value)} autoComplete="off" /></label>
+          <button className="btn btn-primary" type="button" disabled={customModel ? !customName || !customApiBase || !customModelId || !customCapabilities.length : !catalogModelId} onClick={() => void addConfiguration()}>{t("modelConfigurations.add")}</button>
         </div>
       </div>
 

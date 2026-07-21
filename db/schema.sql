@@ -178,7 +178,8 @@ CREATE TABLE model_configurations (
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK (credential_ciphertext IS NOT NULL)
+    -- A private endpoint may authenticate outside of the application and have
+    -- no BYOK. Provider invocation then receives no API key.
 );
 
 CREATE TABLE stage_model_defaults (

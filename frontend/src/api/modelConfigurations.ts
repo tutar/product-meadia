@@ -19,7 +19,7 @@ export interface StageModelDefault { stage: ModelStage; model_configuration_id: 
 export const modelConfigurationsApi = {
   listCatalog: async (capability?: ModelStage) => (await api.get<ProviderModelCatalogEntry[]>("/provider-model-catalog", { params: capability ? { capability } : undefined })).data,
   list: async () => (await api.get<ModelConfiguration[]>("/model-configurations")).data,
-  create: async (input: { catalog_model_id?: string; display_name?: string; adapter?: string; api_base?: string; model_id?: string; capabilities?: ModelStage[]; constraints?: Record<string, unknown>; credential: string }) => (await api.post<ModelConfiguration>("/model-configurations", input)).data,
+  create: async (input: { catalog_model_id?: string; display_name?: string; adapter?: string; api_base?: string; model_id?: string; capabilities?: ModelStage[]; constraints?: Record<string, unknown>; credential?: string }) => (await api.post<ModelConfiguration>("/model-configurations", input)).data,
   update: async (id: string, input: { display_name?: string; adapter?: string; api_base?: string; model_id?: string; capabilities?: ModelStage[]; constraints?: Record<string, unknown>; credential?: string }) => (await api.patch<ModelConfiguration>(`/model-configurations/${id}`, input)).data,
   verify: async (id: string) => (await api.post<ModelConfiguration>(`/model-configurations/${id}/verify`)).data,
   revoke: async (id: string) => (await api.post<ModelConfiguration>(`/model-configurations/${id}/revoke`)).data,

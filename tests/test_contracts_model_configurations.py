@@ -17,7 +17,7 @@ def test_openapi_declares_private_model_configuration_and_stage_default_contract
     assert create["properties"]["credential"]["writeOnly"] is True
     assert create["properties"]["catalog_model_id"]["nullable"] is True
     assert any(
-        set(option["required"]) == {"display_name", "adapter", "model_id", "capabilities", "credential"}
+        set(option["required"]) == {"display_name", "adapter", "model_id", "capabilities"}
         for option in create["anyOf"]
     )
 
@@ -30,4 +30,4 @@ def test_schema_declares_a_user_owned_model_configuration_without_platform_defau
     assert "adapter VARCHAR(80) NOT NULL" in configuration
     assert "api_base VARCHAR(1000)" in configuration
     assert "revision INTEGER NOT NULL DEFAULT 1" in configuration
-    assert "CHECK (credential_ciphertext IS NOT NULL)" in configuration
+    assert "CHECK (credential_ciphertext IS NOT NULL)" not in configuration

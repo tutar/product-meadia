@@ -46,6 +46,40 @@ async def test_stage_start_freezes_latest_private_configuration_and_passes_its_a
 
 
 @pytest.mark.asyncio
+async def test_credential_free_private_endpoint_is_invoked_without_an_api_key(db_session):
+    from src.services.model_invocation import ModelInvocationBoundary
+    from src.services.model_verification import NO_CREDENTIAL_PROBE
+
+    class FakeLiteLLM:
+        async def complete(self, *, provider, model_id, api_base, credential, messages, temperature):
+            assert (provider, model_id, api_base, credential) == (
+                "openai", "local-script", "http://scripts.internal/v1", None,
+            )
+            return "local draft"
+
+    owner = User(email="credential-free-invocation@example.test", hashed_password="x")
+    configuration = ModelConfiguration(
+        owner=owner, adapter="openai_compatible", api_base="http://scripts.internal/v1",
+        model_id="local-script", display_name="Local script", capabilities=["scriptwriting"], constraints={},
+        credential_ciphertext=None, verification_status="unverified", verification_error=NO_CREDENTIAL_PROBE,
+    )
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, configuration, task])
+    await db_session.flush()
+    selection = StageModelSelection(task_id=task.id, stage="scriptwriting", model_configuration_id=configuration.id)
+    db_session.add(selection)
+    await db_session.commit()
+
+    result = await ModelInvocationBoundary(FakeLiteLLM()).complete(
+        db_session, task.id, "scriptwriting", [{"role": "user", "content": "draft"}],
+    )
+
+    await db_session.refresh(configuration)
+    assert result.content == "local draft"
+    assert configuration.verification_status == "verified"
+
+
+@pytest.mark.asyncio
 async def test_invocation_uses_frozen_selection_and_decrypts_byok_only_at_the_boundary(db_session):
     from src.services.model_invocation import ModelInvocationBoundary
 

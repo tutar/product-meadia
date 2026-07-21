@@ -31,6 +31,23 @@ async def ensure_model_configuration_compatibility(connection) -> None:
     await connection.execute(text(
         "ALTER TABLE model_configurations ALTER COLUMN catalog_model_id DROP NOT NULL"
     ))
+    # Older pre-release tables required either a platform default or a
+    # ciphertext. Private endpoints may now use their own unauthenticated or
+    # network-level authentication, so remove only that legacy credential check.
+    await connection.execute(text("""
+        DO $$
+        DECLARE legacy_constraint text;
+        BEGIN
+            SELECT conname INTO legacy_constraint
+            FROM pg_constraint
+            WHERE conrelid = 'model_configurations'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) LIKE '%credential_ciphertext%';
+            IF legacy_constraint IS NOT NULL THEN
+                EXECUTE format('ALTER TABLE model_configurations DROP CONSTRAINT %I', legacy_constraint);
+            END IF;
+        END $$;
+    """))
 
 
 async def ensure_schema() -> None:

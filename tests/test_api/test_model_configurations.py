@@ -41,6 +41,27 @@ async def test_user_can_create_and_edit_a_private_openai_compatible_model_withou
     assert "private-byok" not in str(updated.model_dump())
 
 
+@pytest.mark.asyncio
+async def test_user_can_create_a_private_model_that_does_not_require_a_credential(db_session):
+    from src.api.model_configurations import create_model_configuration
+    from src.schemas.model_configuration import ModelConfigurationCreate
+
+    user = User(email="unauthenticated-private-model@example.test", hashed_password="x")
+    db_session.add(user)
+    await db_session.commit()
+
+    configuration = await create_model_configuration(
+        ModelConfigurationCreate(
+            display_name="Local TTS", adapter="openai_compatible", api_base="http://tts.internal/v1",
+            model_id="local-tts", capabilities=["voice_generation"],
+        ),
+        db_session, user,
+    )
+
+    assert configuration.model_id == "local-tts"
+    assert configuration.verification_status == "unverified"
+
+
 def test_private_model_endpoint_requires_https_when_it_is_public():
     from pydantic import ValidationError
     from src.schemas.model_configuration import ModelConfigurationCreate

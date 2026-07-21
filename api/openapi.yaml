@@ -793,8 +793,8 @@ components:
         constraints: { type: object, additionalProperties: true }
         credential: { type: string, writeOnly: true }
       anyOf:
-        - required: [catalog_model_id, credential]
-        - required: [display_name, adapter, model_id, capabilities, credential]
+        - required: [catalog_model_id]
+        - required: [display_name, adapter, model_id, capabilities]
     ModelConfiguration:
       type: object
       required: [id, adapter, provider, model_id, display_name, capabilities, constraints, revision, uses_platform_default, verification_status, first_use_eligible]

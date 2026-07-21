@@ -110,3 +110,33 @@ test("preferences creates a private OpenAI-compatible model without rendering it
   await expect.poll(() => posted).toBe(true);
   await expect(page.locator("body")).not.toContainText("private-byok");
 });
+
+test("preferences permits a credential-free private model", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/auth/preferences", route => route.fulfill({ json: { auto_approve_script: false, auto_approve_images: false } }));
+  await page.route("**/api/v1/provider-model-catalog**", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/stage-model-defaults", route => route.fulfill({ json: [] }));
+  let posted = false;
+  await page.route("**/api/v1/model-configurations", route => {
+    if (route.request().method() === "POST") {
+      posted = true;
+      expect(route.request().postDataJSON()).toEqual({
+        display_name: "Local TTS", adapter: "openai_compatible", api_base: "http://tts.internal/v1",
+        model_id: "local-tts", capabilities: ["voice_generation"],
+      });
+      return route.fulfill({ status: 201, json: { id: "local-tts", catalog_model_id: null, adapter: "openai_compatible", api_base: "http://tts.internal/v1", provider: "openai_compatible", model_id: "local-tts", display_name: "Local TTS", capabilities: ["voice_generation"], constraints: {}, revision: 1, uses_platform_default: false, verification_status: "unverified", verification_error: null, first_use_eligible: true, verified_at: null, revoked_at: null, created_at: "2026-07-21T00:00:00Z", updated_at: "2026-07-21T00:00:00Z" } });
+    }
+    return route.fulfill({ json: [] });
+  });
+
+  await page.goto("/preferences");
+  await page.getByRole("button", { name: "Configure private model" }).click();
+  await page.getByLabel("Configuration name").fill("Local TTS");
+  await page.getByLabel("Private endpoint").fill("http://tts.internal/v1");
+  await page.getByLabel("Model ID").fill("local-tts");
+  await page.getByRole("checkbox", { name: "Voice generation" }).check();
+  await page.getByRole("button", { name: "Add configuration" }).click();
+
+  await expect.poll(() => posted).toBe(true);
+});

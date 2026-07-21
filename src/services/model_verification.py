@@ -11,6 +11,7 @@ from src.models.model_configuration import ModelConfiguration
 from src.services.model_credentials import decrypt_credential
 
 SAFE_PROBE_UNAVAILABLE = "No safe verification probe is configured; availability will be established on first use"
+NO_CREDENTIAL_PROBE = "No credential is configured; availability will be established on first use"
 
 
 @dataclass(frozen=True)
@@ -23,7 +24,7 @@ def is_selectable(configuration: ModelConfiguration) -> bool:
     """Unprobeable configurations are eligible for their first real use."""
     return configuration.verification_status == "verified" or (
         configuration.verification_status == "unverified"
-        and configuration.verification_error == SAFE_PROBE_UNAVAILABLE
+        and configuration.verification_error in {SAFE_PROBE_UNAVAILABLE, NO_CREDENTIAL_PROBE}
     )
 
 
@@ -41,7 +42,7 @@ class SafeModelVerifier:
 
     async def verify(self, *, provider: str, model_id: str, credential: str | None, api_base: str | None = None) -> VerificationResult:
         if not credential:
-            return VerificationResult(False, "No credential is available for verification")
+            return VerificationResult(False, NO_CREDENTIAL_PROBE)
         if provider not in {"openai", "openai_compatible"}:
             return VerificationResult(False, SAFE_PROBE_UNAVAILABLE)
         try:

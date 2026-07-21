@@ -33,22 +33,24 @@ class InvocationResult:
 
 
 class LiteLLMClient:
-    async def complete(self, *, provider: str, model_id: str, credential: str, messages: list[dict], temperature: float, api_base: str | None = None) -> str:
+    async def complete(self, *, provider: str, model_id: str, credential: str | None, messages: list[dict], temperature: float, api_base: str | None = None) -> str:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
-        params = {"model": f"{provider}/{model_id}", "api_key": credential, "messages": messages, "temperature": temperature}
+        params = {"model": f"{provider}/{model_id}", "messages": messages, "temperature": temperature}
+        if credential: params["api_key"] = credential
         if api_base: params["api_base"] = api_base
         response = await litellm.acompletion(**params)
         return response.choices[0].message.content or ""
 
-    async def image(self, *, provider: str, model_id: str, credential: str, prompt: str, size: str, reference_image_url: str | None = None, api_base: str | None = None) -> str:
+    async def image(self, *, provider: str, model_id: str, credential: str | None, prompt: str, size: str, reference_image_url: str | None = None, api_base: str | None = None) -> str:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
-        params = {"model": f"{provider}/{model_id}", "api_key": credential, "prompt": prompt, "size": size}
+        params = {"model": f"{provider}/{model_id}", "prompt": prompt, "size": size}
+        if credential: params["api_key"] = credential
         if reference_image_url:
             params["image"] = [reference_image_url]
         if api_base:
@@ -56,12 +58,13 @@ class LiteLLMClient:
         response = await litellm.aimage_generation(**params)
         return response.data[0].url
 
-    async def speech(self, *, provider: str, model_id: str, credential: str, text: str, voice: str, api_base: str | None = None) -> bytes:
+    async def speech(self, *, provider: str, model_id: str, credential: str | None, text: str, voice: str, api_base: str | None = None) -> bytes:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
-        params = {"model": f"{provider}/{model_id}", "api_key": credential, "input": text, "voice": voice}
+        params = {"model": f"{provider}/{model_id}", "input": text, "voice": voice}
+        if credential: params["api_key"] = credential
         if api_base: params["api_base"] = api_base
         response = await litellm.aspeech(**params)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as file:
@@ -72,18 +75,19 @@ class LiteLLMClient:
         finally:
             path.unlink(missing_ok=True)
 
-    async def transcription(self, *, provider: str, model_id: str, credential: str, file_path: Path, api_base: str | None = None) -> str:
+    async def transcription(self, *, provider: str, model_id: str, credential: str | None, file_path: Path, api_base: str | None = None) -> str:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
         with file_path.open("rb") as audio_file:
-            params = {"model": f"{provider}/{model_id}", "api_key": credential, "file": audio_file}
+            params = {"model": f"{provider}/{model_id}", "file": audio_file}
+            if credential: params["api_key"] = credential
             if api_base: params["api_base"] = api_base
             response = await litellm.atranscription(**params)
         return response.text
 
-    async def video(self, *, provider: str, model_id: str, credential: str, prompt: str, seconds: int, image_urls: list[str], api_base: str | None = None) -> bytes:
+    async def video(self, *, provider: str, model_id: str, credential: str | None, prompt: str, seconds: int, image_urls: list[str], api_base: str | None = None) -> bytes:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
@@ -91,7 +95,8 @@ class LiteLLMClient:
         reference_path = None
         reference_file = None
         try:
-            params = {"model": f"{provider}/{model_id}", "api_key": credential, "prompt": prompt, "seconds": str(seconds), "size": "1152x768"}
+            params = {"model": f"{provider}/{model_id}", "prompt": prompt, "seconds": str(seconds), "size": "1152x768"}
+            if credential: params["api_key"] = credential
             if image_urls:
                 import httpx
                 async with httpx.AsyncClient(timeout=60) as http:
@@ -144,10 +149,8 @@ class ModelInvocationBoundary:
         credential = (
             settings.platform_default_model_api_key
             if configuration.uses_platform_default
-            else decrypt_credential(configuration.credential_ciphertext)
+            else decrypt_credential(configuration.credential_ciphertext) if configuration.credential_ciphertext else None
         )
-        if not credential:
-            raise ModelAvailabilityFailure(f"Frozen model selection for {stage} has no credential")
         return selection, credential
 
     @staticmethod

@@ -68,8 +68,8 @@ async def create_model_configuration(body: ModelConfigurationCreate, db: AsyncSe
         model_id=body.model_id or catalog.model_id,
         display_name=body.display_name or catalog.display_name,
         capabilities=body.capabilities if body.capabilities is not None else list(catalog.capabilities),
-        constraints=body.constraints if body.constraints is not None else dict(catalog.constraints),
-        credential_ciphertext=encrypt_credential(body.credential),
+        constraints=body.constraints if body.constraints is not None else dict(catalog.constraints) if catalog else {},
+        credential_ciphertext=encrypt_credential(body.credential) if body.credential else None,
         uses_platform_default=False,
     )
     db.add(configuration)

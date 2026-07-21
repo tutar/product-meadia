@@ -32,11 +32,9 @@ class ModelConfigurationCreate(BaseModel):
     use_platform_default: bool = False
 
     @model_validator(mode="after")
-    def has_exactly_one_credential_source(self):
-        if not self.credential and not self.use_platform_default:
-            raise ValueError("Provide a credential")
-        if self.credential and self.use_platform_default:
-            raise ValueError("Provide a credential or request the platform default, but not both")
+    def has_valid_model_source(self):
+        if self.use_platform_default:
+            raise ValueError("Platform defaults are not supported")
         if self.catalog_model_id is None:
             missing = [name for name in ("display_name", "adapter", "model_id", "capabilities") if getattr(self, name) in (None, [])]
             if missing:
@@ -76,7 +74,7 @@ class ModelConfigurationUpdate(BaseModel):
             return self
         ModelConfigurationCreate(
             display_name="endpoint-validation", adapter="openai_compatible", api_base=self.api_base,
-            model_id="endpoint-validation", capabilities=["scriptwriting"], credential="endpoint-validation",
+            model_id="endpoint-validation", capabilities=["scriptwriting"],
         )
         return self
 
