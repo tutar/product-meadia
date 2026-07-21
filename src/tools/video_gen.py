@@ -51,7 +51,9 @@ async def _provider_image_urls(client: httpx.AsyncClient, image_urls: list[str])
 
 
 @observe(name="generate_video")
-async def generate_video(prompt: str, image_urls: list[str] | None = None, *, task_id: str | None = None) -> str:
+async def generate_video(
+    prompt: str, image_urls: list[str] | None = None, *, task_id: str | None = None, seconds: int | None = None,
+) -> str:
     """Generate video via LiteLLM-proxied Agnes Video V2.0.
 
     Uses OpenAI-compatible /v1/videos endpoint (create + poll).
@@ -60,7 +62,7 @@ async def generate_video(prompt: str, image_urls: list[str] | None = None, *, ta
         from uuid import UUID
         async with AsyncSessionLocal() as db:
             resolved = await ModelInvocationBoundary().generate_video(
-                db, UUID(task_id), prompt, seconds=SELECTED_VIDEO_MODEL.max_duration_seconds,
+                db, UUID(task_id), prompt, seconds=seconds or SELECTED_VIDEO_MODEL.max_duration_seconds,
                 image_urls=image_urls or [],
             )
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as file:

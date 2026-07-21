@@ -136,6 +136,11 @@ async def _async_run(task_id: str, celery_task_id: str):
             main_image_data_uri = ""
             if main_image_asset_id := snapshot.get("main_image_asset_id"):
                 main_image_data_uri = await media.data_uri(main_image_asset_id, task.user_id)
+            clip_selection = await db.scalar(select(StageModelSelection).where(
+                StageModelSelection.task_id == task.id,
+                StageModelSelection.stage == "clip_video",
+            ))
+            clip_model_constraints = dict((clip_selection.resolution_snapshot or {}).get("constraints") or {}) if clip_selection else {}
 
             initial_state: VideoAgentState = {
                 "task_id": str(task.id),
@@ -146,7 +151,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "image_count": task.image_count,
                 "creative_brief": {}, "creative_brief_approved": False,
                 "shot_plan": [], "shot_plan_approved": False,
-                "clip_segments": [], "editing_blueprint": [],
+                "clip_segments": [], "clip_model_constraints": clip_model_constraints, "editing_blueprint": [],
                 "viral_url": "",
                 "script_content": "", "edited_script_content": "", "image_prompts": [],
                 "voiceover_text": "", "generated_images": [], "video_clips": [], "video_clips_reused": False,

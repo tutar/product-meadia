@@ -28,6 +28,7 @@ def resolution_snapshot(configuration: ModelConfiguration) -> dict:
         "provider": catalog.provider,
         "model_id": catalog.model_id,
         "capability_revision": catalog.capability_revision,
+        "constraints": dict(catalog.constraints or {}),
         "uses_platform_default": configuration.uses_platform_default,
     }
 

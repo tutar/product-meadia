@@ -74,18 +74,21 @@ def composition_feedback_key(state: VideoAgentState) -> str:
     return "feedback:" + ":".join(feedback_ids) if feedback_ids else "initial"
 
 
-def clip_segments_for_shot_plan(shot_plan: list[dict]) -> list[dict]:
+def clip_segments_for_shot_plan(
+    shot_plan: list[dict], *, max_duration_seconds: float | None = None,
+) -> list[dict]:
     """Split approved shots into model-sized, sequential clip segments."""
+    maximum = max_duration_seconds or SELECTED_VIDEO_MODEL.max_duration_seconds
     segments: list[dict] = []
     for shot_index, shot in enumerate(shot_plan):
-        target = max(1.0, float(shot.get("target_duration_seconds") or SELECTED_VIDEO_MODEL.max_duration_seconds))
-        segment_count = max(1, math.ceil(target / SELECTED_VIDEO_MODEL.max_duration_seconds))
+        target = max(1.0, float(shot.get("target_duration_seconds") or maximum))
+        segment_count = max(1, math.ceil(target / maximum))
         for segment_index in range(segment_count):
             segments.append({
                 "shot_index": shot_index,
                 "segment_index": segment_index,
                 "segment_count": segment_count,
-                "target_duration_seconds": min(SELECTED_VIDEO_MODEL.max_duration_seconds, target - segment_index * SELECTED_VIDEO_MODEL.max_duration_seconds),
+                "target_duration_seconds": min(maximum, target - segment_index * maximum),
                 "image_prompt": shot.get("image_prompt", ""),
                 "video_motion_prompt": shot.get("video_motion_prompt", ""),
                 "voiceover_text": shot.get("voiceover_text", ""),
@@ -93,9 +96,11 @@ def clip_segments_for_shot_plan(shot_plan: list[dict]) -> list[dict]:
     return segments
 
 
-def keyframes_for_segments(segments: list[dict]) -> list[dict]:
+def keyframes_for_segments(
+    segments: list[dict], *, max_keyframes: int | None = None,
+) -> list[dict]:
     """Expand each segment into the selected model's ordered keyframe inputs."""
-    roles = ["start", "end"][:SELECTED_VIDEO_MODEL.max_keyframes]
+    roles = ["start", "end"][:max_keyframes or SELECTED_VIDEO_MODEL.max_keyframes]
     keyframes = []
     for segment in segments:
         for role in roles:
@@ -167,8 +172,11 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
 
     async def generate_images(state: VideoAgentState) -> dict:
         planned_shots = state.get("shot_plan", [])
-        segments = clip_segments_for_shot_plan(planned_shots)
-        keyframes = keyframes_for_segments(segments)
+        constraints = state.get("clip_model_constraints", {})
+        segments = clip_segments_for_shot_plan(
+            planned_shots, max_duration_seconds=constraints.get("max_duration_seconds"),
+        )
+        keyframes = keyframes_for_segments(segments, max_keyframes=constraints.get("max_keyframes"))
         prompts = [
             f'{keyframe["image_prompt"]}\nKeyframe: {keyframe["keyframe_role"]} of clip segment {keyframe["segment_index"] + 1}.'
             for keyframe in keyframes
@@ -194,7 +202,10 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("video_clips") and not feedback_by_index:
             return {"video_clips": state["video_clips"], "video_clips_reused": True}
         approved_images = [img for img in state.get("generated_images", []) if img.get("status") == "approved"]
-        segments = state.get("clip_segments") or clip_segments_for_shot_plan(state.get("shot_plan", []))
+        constraints = state.get("clip_model_constraints", {})
+        segments = state.get("clip_segments") or clip_segments_for_shot_plan(
+            state.get("shot_plan", []), max_duration_seconds=constraints.get("max_duration_seconds"),
+        )
         def images_for_segment(index: int) -> list[str]:
             matching = [
                 image for image in approved_images
@@ -217,6 +228,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                     + f"\n\nReviewer improvement guidance:\n{guidance}",
                     image_urls=image_urls,
                     task_id=state.get("task_id"),
+                    seconds=round(float(segments[index].get("target_duration_seconds") or constraints.get("max_duration_seconds") or SELECTED_VIDEO_MODEL.max_duration_seconds)),
                 )
             return {"video_clips": clips, "video_clips_reused": False, "regenerated_clip_indexes": list(feedback_by_index)}
         clips = []
@@ -229,6 +241,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                 or f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}") + review_guidance(state, "video_clip"),
                 image_urls=image_urls,
                 task_id=state.get("task_id"),
+                seconds=round(float(segments[index].get("target_duration_seconds") or constraints.get("max_duration_seconds") or SELECTED_VIDEO_MODEL.max_duration_seconds)),
             )
             clips.append(clip_url)
         return {"video_clips": clips, "video_clips_reused": False}
@@ -248,7 +261,10 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     async def composite_video(state: VideoAgentState) -> dict:
         clips = state.get("video_clips", [])
         options = await composition_options(state)
-        segments = state.get("clip_segments") or clip_segments_for_shot_plan(state.get("shot_plan", []))
+        constraints = state.get("clip_model_constraints", {})
+        segments = state.get("clip_segments") or clip_segments_for_shot_plan(
+            state.get("shot_plan", []), max_duration_seconds=constraints.get("max_duration_seconds"),
+        )
         planned_durations = [float(segment.get("target_duration_seconds") or options["clip_duration"]) for segment in segments]
         if len(planned_durations) != len(clips):
             planned_durations = [float(options["clip_duration"])] * len(clips)
