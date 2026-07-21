@@ -8,6 +8,31 @@ engine = create_async_engine(settings.database_url, echo=(settings.app_env == "d
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
+async def ensure_model_configuration_compatibility(connection) -> None:
+    """Upgrade the unreleased development schema without losing local data.
+
+    `create_all()` adds tables only; it cannot add the copied runtime fields
+    introduced when template rows stopped being live model configurations.
+    """
+    columns = {
+        "adapter": "VARCHAR(80) NOT NULL DEFAULT 'openai'",
+        "api_base": "VARCHAR(1000)",
+        "model_id": "VARCHAR(255)",
+        "display_name": "VARCHAR(255)",
+        "capabilities": "JSONB NOT NULL DEFAULT '[]'::jsonb",
+        "constraints": "JSONB NOT NULL DEFAULT '{}'::jsonb",
+        "revision": "INTEGER NOT NULL DEFAULT 1",
+    }
+    for column, definition in columns.items():
+        await connection.execute(text(
+            "ALTER TABLE model_configurations ADD COLUMN IF NOT EXISTS "
+            f"{column} {definition}"
+        ))
+    await connection.execute(text(
+        "ALTER TABLE model_configurations ALTER COLUMN catalog_model_id DROP NOT NULL"
+    ))
+
+
 async def ensure_schema() -> None:
     """Create tables missing from an existing development database.
 
@@ -18,6 +43,7 @@ async def ensure_schema() -> None:
     """
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await ensure_model_configuration_compatibility(connection)
         # Development databases created before the catalog model was introduced
         # can still contain the legacy fragrance-only products table.  `create_all`
         # intentionally does not alter existing tables, so add the new nullable
