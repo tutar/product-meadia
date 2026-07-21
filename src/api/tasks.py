@@ -21,11 +21,13 @@ from src.models.review_feedback import ReviewFeedback
 from src.models.viral_analysis import ViralAnalysis
 from src.models.media_asset import MediaAsset
 from src.models.generation_record import GenerationRecord
+from src.models.model_configuration import StageModelSelection
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate, CreativeBriefResponse, CreativeBriefUpdate,
     ShotPlanResponse, ShotPlanUpdate, EditingBlueprintResponse,
     ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
     GenerationRecordResponse, GenerationRecordExportRequest,
+    StageModelSelectionResponse, StageModelSelectionUpdate,
 )
 from src.auth.deps import get_current_user
 from src.tasks.execution import feedback_stage, stage_for_node
@@ -33,6 +35,8 @@ from src.tasks.recovery import is_stale_task
 from src.services.product_context import build_product_snapshot
 from src.api.media import get_media_service
 from src.services.media_service import MediaService
+from src.services.stage_model_selections import ModelSelectionUnavailableError, freeze_stage_model_selections
+from src.services.stage_model_selections import replace_stage_model_selection
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 ACTIVE_TASK_STATUSES = ("pending", "planning", "creative_brief_review", "shot_plan_review", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review", "cancellation_requested")
@@ -177,6 +181,14 @@ async def create_task(
         status="pending",
     )
     db.add(task)
+    await db.flush()
+    try:
+        await freeze_stage_model_selections(
+            db, task, user.id, overrides=body.stage_model_configuration_ids,
+        )
+    except ModelSelectionUnavailableError as error:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     await db.commit()
     await db.refresh(task)
 
@@ -234,6 +246,27 @@ async def get_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+@router.get("/{task_id}/stage-model-selections", response_model=list[StageModelSelectionResponse])
+async def list_stage_model_selections(
+    task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user),
+):
+    await owned_task(db, user, task_id)
+    return (await db.scalars(select(StageModelSelection).where(
+        StageModelSelection.task_id == task_id,
+    ).order_by(StageModelSelection.created_at))).all()
+
+
+@router.put("/{task_id}/stage-model-selections/{stage}", response_model=StageModelSelectionResponse)
+async def update_stage_model_selection(
+    task_id: UUID, stage: str, body: StageModelSelectionUpdate,
+    db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user),
+):
+    task = await owned_task(db, user, task_id)
+    selection = await replace_stage_model_selection(db, task, user.id, stage, body.model_configuration_id)
+    await db.commit()
+    return selection
 
 
 @router.get("/{task_id}/generation-records", response_model=list[GenerationRecordResponse])

@@ -28,6 +28,21 @@ from src.tasks.execution import (
 from src.tasks.generation_records import generation_substep, reset_generation_recorder, set_generation_recorder
 from src.models.generation_record import GenerationRecord
 from src.models.media_asset import MediaAsset
+from src.models.model_configuration import StageModelSelection
+
+NODE_TO_MODEL_SELECTION_STAGE = {
+    "generate_creative_brief": "creative_planning",
+    "generate_shot_plan": "creative_planning",
+    "generate_script": "scriptwriting",
+    "generate_rewritten_script": "scriptwriting",
+    "generate_images": "keyframe_image",
+    "generate_character": "keyframe_image",
+    "generate_video_clips": "clip_video",
+    "generate_clips_and_voiceover": "clip_video",
+    "generate_voiceover": "voice_generation",
+    "generate_tts_and_lipsync": "voice_generation",
+    "analyze_source": "viral_analysis",
+}
 
 # Celery invokes each task through asyncio.run(), creating a new event loop.
 # Asyncpg connections cannot move between those loops, so this worker must not
@@ -321,6 +336,20 @@ async def _async_run(task_id: str, celery_task_id: str):
             if not substep:
                 return
             async with SessionLocal() as record_db:
+                selection_stage = NODE_TO_MODEL_SELECTION_STAGE.get(substep)
+                selection = await record_db.scalar(select(StageModelSelection).where(
+                    StageModelSelection.task_id == task_id,
+                    StageModelSelection.stage == selection_stage,
+                )) if selection_stage else None
+                # A combined graph node can invoke both clip and voice models.
+                # Match the actual resolved model first so each immutable audit
+                # record retains the selection that truly produced it.
+                candidates = (await record_db.scalars(select(StageModelSelection).where(
+                    StageModelSelection.task_id == task_id,
+                ))).all()
+                selection = next((candidate for candidate in candidates if (
+                    candidate.resolution_snapshot or {}
+                ).get("model_id") == model), selection)
                 task_snapshot = await record_db.scalar(select(VideoTask.product_snapshot).where(VideoTask.id == task_id))
                 input_asset_ids = [asset_id for asset_id in [
                     (task_snapshot or {}).get("main_image_asset_id"),
@@ -337,6 +366,11 @@ async def _async_run(task_id: str, celery_task_id: str):
                     normalized_input=normalized_input, normalized_output=normalized_output,
                     provider_payload=provider_payload,
                     provenance={"workflow_commit": settings.git_commit, "prompt_template_hash": parameters.get("prompt_template_hash")},
+                    model_resolution_snapshot={
+                        **(dict(selection.resolution_snapshot) if selection else {}),
+                        "invocation_parameters": dict(parameters),
+                        "retry_count": max(0, attempt_number - 1),
+                    },
                 ))
                 await record_db.commit()
 

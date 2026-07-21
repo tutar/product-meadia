@@ -11,6 +11,9 @@ class Settings(BaseSettings):
 
     litellm_base_url: str = "http://localhost:4000/v1"
     litellm_api_key: str = "sk-litellm-master"
+    # Kept server-side only. Deployments must set this to a managed secret.
+    model_credential_encryption_secret: str = "development-model-credential-secret"
+    platform_default_model_api_key: str = ""
 
     latentsync_base_url: str = "http://localhost:8090"
     rustfs_base_url: str = "http://localhost:8001"

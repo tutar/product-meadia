@@ -16,6 +16,7 @@ from src.models.main_image_candidate import MainImageCandidate
 from src.models.outbox_event import OutboxEvent
 from src.models.review_feedback import ReviewFeedback
 from src.models.generation_record import GenerationRecord
+from src.models.model_configuration import ProviderModelCatalog, ModelConfiguration, StageModelDefault, StageModelSelection
 
 __all__ = [
     "Base",
@@ -26,12 +27,16 @@ __all__ = [
     "GeneratedImage",
     "GenerationRecord",
     "MainImageCandidate",
+    "ModelConfiguration",
     "OutboxEvent",
     "Product",
     "ProductPackagingImage",
     "ReviewFeedback",
+    "ProviderModelCatalog",
     "Script",
     "ShotPlan",
+    "StageModelDefault",
+    "StageModelSelection",
     "EditingBlueprint",
     "User",
     "VideoCandidate",

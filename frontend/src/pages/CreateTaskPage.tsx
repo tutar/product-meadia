@@ -5,6 +5,14 @@ import axios from "axios";
 import api from "../api/client";
 import { catalogApi, type Product } from "../api/catalog";
 import MediaImage from "../components/MediaImage";
+import { modelConfigurationsApi } from "../api/modelConfigurations";
+import type { ModelConfiguration, ModelStage, StageModelDefault } from "../api/modelConfigurations";
+
+const MODEL_STAGES: Array<[ModelStage, string]> = [
+  ["creative_planning", "Creative planning"], ["scriptwriting", "Scriptwriting"],
+  ["keyframe_image", "Keyframe image generation"], ["clip_video", "Clip video generation"],
+  ["voice_generation", "Voice generation"], ["viral_analysis", "Viral analysis / transcription"],
+];
 
 type CreateTaskFormProps = {
   initialCategoryId?: string;
@@ -22,6 +30,9 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
   const [viralUrl, setViralUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [modelConfigurations, setModelConfigurations] = useState<ModelConfiguration[]>([]);
+  const [stageDefaults, setStageDefaults] = useState<StageModelDefault[]>([]);
+  const [stageOverrides, setStageOverrides] = useState<Record<string, string>>({});
   const submittingRef = useRef(false);
   const navigate = useNavigate();
   const selectedProduct = products.find(product => product.id === productId);
@@ -33,6 +44,21 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
   useEffect(() => {
     setProductId(initialProductId);
   }, [initialProductId, initialCategoryId]);
+  useEffect(() => {
+    Promise.all([modelConfigurationsApi.list(), modelConfigurationsApi.listDefaults()])
+      .then(([configurations, defaults]) => { setModelConfigurations(configurations); setStageDefaults(defaults); })
+      .catch(() => {});
+  }, []);
+
+  const stagesForTask = MODEL_STAGES.filter(([stage]) => type === "viral" || stage !== "viral_analysis");
+  const defaultFor = (stage: ModelStage) => stageDefaults.find(item => item.stage === stage)?.model_configuration_id || "";
+  const updateStageOverride = (stage: ModelStage, value: string) => {
+    setStageOverrides(current => {
+      const next = { ...current };
+      if (!value || value === defaultFor(stage)) delete next[stage]; else next[stage] = value;
+      return next;
+    });
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -45,6 +71,7 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
         product_id: productId, type,
         image_count: imageCount,
         viral_url: type === "viral" ? viralUrl : undefined,
+        stage_model_configuration_ids: Object.keys(stageOverrides).length ? stageOverrides : undefined,
       });
       if (onCreated) onCreated(data.id);
       else navigate(`/dashboard?task=${data.id}`);
@@ -104,6 +131,22 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
             </div>
           )}
         </div>
+
+        {modelConfigurations.length > 0 && <div className="card mb-6" aria-labelledby="task-model-selection-heading">
+          <h3 id="task-model-selection-heading" className="mb-2">Model selections</h3>
+          <p className="text-secondary text-sm mb-6">Selections are frozen with this Video Task. Only verified, capability-compatible configurations are available.</p>
+          {stagesForTask.map(([stage, label]) => {
+            const eligible = modelConfigurations.filter(item => item.verification_status === "verified" && item.capabilities.includes(stage));
+            const value = stageOverrides[stage] || defaultFor(stage);
+            return <div className="form-group" key={stage}>
+              <label className="form-label" htmlFor={`task-model-${stage}`}>{label}</label>
+              <select id={`task-model-${stage}`} className="select" value={value} onChange={event => updateStageOverride(stage, event.target.value)}>
+                <option value="">No configured default</option>
+                {eligible.map(item => <option key={item.id} value={item.id}>{item.provider} / {item.display_name}</option>)}
+              </select>
+            </div>;
+          })}
+        </div>}
 
         {error && <p role="alert" className="notice notice-error mb-4">{error}</p>}
         <div className="task-create-actions">

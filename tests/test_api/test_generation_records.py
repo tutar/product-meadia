@@ -21,6 +21,7 @@ async def test_task_owner_reads_latest_generation_material_without_sensitive_pay
             normalized_output={"creative_brief": {"core_promise": "Quiet focus"}},
             provider_payload={"messages": [{"role": "user", "content": "Product: Cedar candle"}]},
             provenance={"workflow_commit": "abc123"},
+            model_resolution_snapshot={"provider": "openai", "model_id": "gpt-4.1-mini", "selection_version": 1},
         ),
         GenerationRecord(
             task_id=task.id, stage="planning", substep="generate_creative_brief", attempt=2,
@@ -38,6 +39,7 @@ async def test_task_owner_reads_latest_generation_material_without_sensitive_pay
     assert [record.attempt for record in records] == [2, 1]
     assert records[0].normalized_output == {"creative_brief": {"core_promise": "Slow ritual"}}
     assert records[0].provider_payload == {"messages": [{"role": "user", "content": "Product: Cedar candle, softer"}]}
+    assert records[1].model_resolution_snapshot == {"provider": "openai", "model_id": "gpt-4.1-mini", "selection_version": 1}
 
 
 @pytest.mark.asyncio

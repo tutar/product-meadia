@@ -140,6 +140,84 @@ CREATE TABLE media_assets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Platform-owned model capability contract. Credentials never belong here.
+CREATE TABLE provider_model_catalog (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider VARCHAR(80) NOT NULL,
+    model_id VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255) NOT NULL,
+    capabilities JSONB NOT NULL DEFAULT '[]',
+    constraints JSONB NOT NULL DEFAULT '{}',
+    capability_revision INTEGER NOT NULL DEFAULT 1 CHECK (capability_revision > 0),
+    platform_default_available BOOLEAN NOT NULL DEFAULT false,
+    is_available BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider, model_id)
+);
+
+CREATE TABLE model_configurations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    catalog_model_id UUID NOT NULL REFERENCES provider_model_catalog(id) ON DELETE RESTRICT,
+    credential_ciphertext TEXT,
+    uses_platform_default BOOLEAN NOT NULL DEFAULT false,
+    verification_status VARCHAR(20) NOT NULL DEFAULT 'unverified'
+        CHECK (verification_status IN ('unverified', 'verified', 'unavailable', 'revoked')),
+    verification_error VARCHAR(500),
+    verified_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((uses_platform_default AND credential_ciphertext IS NULL)
+        OR (NOT uses_platform_default AND credential_ciphertext IS NOT NULL))
+);
+
+CREATE TABLE stage_model_defaults (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    stage VARCHAR(40) NOT NULL CHECK (stage IN ('creative_planning', 'scriptwriting', 'keyframe_image', 'clip_video', 'voice_generation', 'viral_analysis')),
+    model_configuration_id UUID NOT NULL REFERENCES model_configurations(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (owner_user_id, stage)
+);
+
+CREATE TABLE stage_model_selections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES video_tasks(id) ON DELETE CASCADE,
+    stage VARCHAR(40) NOT NULL CHECK (stage IN ('creative_planning', 'scriptwriting', 'keyframe_image', 'clip_video', 'voice_generation', 'viral_analysis')),
+    model_configuration_id UUID NOT NULL REFERENCES model_configurations(id) ON DELETE RESTRICT,
+    selection_version INTEGER NOT NULL DEFAULT 1 CHECK (selection_version > 0),
+    resolution_snapshot JSONB NOT NULL DEFAULT '{}',
+    availability_status VARCHAR(30) NOT NULL DEFAULT 'available'
+        CHECK (availability_status IN ('available', 'replacement_required')),
+    started_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (task_id, stage)
+);
+
+CREATE TABLE generation_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id UUID NOT NULL REFERENCES video_tasks(id) ON DELETE CASCADE,
+    stage VARCHAR(40) NOT NULL,
+    substep VARCHAR(80) NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0),
+    provider VARCHAR(80) NOT NULL,
+    model VARCHAR(160) NOT NULL,
+    parameters JSONB NOT NULL DEFAULT '{}',
+    normalized_input JSONB NOT NULL DEFAULT '{}',
+    normalized_output JSONB NOT NULL DEFAULT '{}',
+    provider_payload JSONB NOT NULL DEFAULT '{}',
+    media_asset_ids JSONB NOT NULL DEFAULT '[]',
+    provenance JSONB NOT NULL DEFAULT '{}',
+    model_resolution_snapshot JSONB NOT NULL DEFAULT '{}',
+    training_candidate VARCHAR(20) NOT NULL DEFAULT 'pending_review',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 ALTER TABLE main_image_candidates
     ADD COLUMN IF NOT EXISTS asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;
 
@@ -206,6 +284,9 @@ CREATE INDEX idx_media_assets_owner ON media_assets(owner_user_id);
 CREATE INDEX idx_media_assets_product ON media_assets(product_id);
 CREATE INDEX idx_media_assets_task ON media_assets(task_id);
 CREATE INDEX idx_media_assets_cleanup ON media_assets(delete_after) WHERE delete_after IS NOT NULL;
+CREATE INDEX idx_model_configurations_owner ON model_configurations(owner_user_id);
+CREATE INDEX idx_stage_model_selections_task ON stage_model_selections(task_id);
+CREATE INDEX idx_generation_records_task_stage ON generation_records(task_id, stage);
 
 CREATE TRIGGER trg_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_categories_updated_at BEFORE UPDATE ON categories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -218,3 +299,8 @@ CREATE TRIGGER trg_scripts_updated_at BEFORE UPDATE ON scripts FOR EACH ROW EXEC
 CREATE TRIGGER trg_generated_images_updated_at BEFORE UPDATE ON generated_images FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_viral_analyses_updated_at BEFORE UPDATE ON viral_analyses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER trg_media_assets_updated_at BEFORE UPDATE ON media_assets FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_provider_model_catalog_updated_at BEFORE UPDATE ON provider_model_catalog FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_model_configurations_updated_at BEFORE UPDATE ON model_configurations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_stage_model_defaults_updated_at BEFORE UPDATE ON stage_model_defaults FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_stage_model_selections_updated_at BEFORE UPDATE ON stage_model_selections FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER trg_generation_records_updated_at BEFORE UPDATE ON generation_records FOR EACH ROW EXECUTE FUNCTION update_updated_at();

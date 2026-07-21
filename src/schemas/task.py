@@ -10,6 +10,7 @@ class TaskCreate(BaseModel):
     viral_url: str | None = None
     script_overrides: dict | None = None
     style_overrides: dict | None = None
+    stage_model_configuration_ids: dict[str, UUID] | None = None
 
 
 class ScriptResponse(BaseModel):
@@ -136,6 +137,7 @@ class GenerationRecordResponse(BaseModel):
     provider_payload: dict
     media_asset_ids: list[str]
     provenance: dict
+    model_resolution_snapshot: dict = {}
     training_candidate: str
     created_at: datetime
 
@@ -144,6 +146,21 @@ class GenerationRecordResponse(BaseModel):
 
 class GenerationRecordExportRequest(BaseModel):
     record_ids: list[UUID]
+
+
+class StageModelSelectionUpdate(BaseModel):
+    model_configuration_id: UUID
+
+
+class StageModelSelectionResponse(BaseModel):
+    stage: str
+    model_configuration_id: UUID
+    selection_version: int
+    resolution_snapshot: dict
+    availability_status: str
+    started_at: datetime | None
+
+    model_config = {"from_attributes": True}
 
 
 class TaskResponse(BaseModel):

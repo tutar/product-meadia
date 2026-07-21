@@ -50,6 +50,14 @@ async def ensure_schema() -> None:
             "ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS "
             "result_video_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
         ))
+        await connection.execute(text(
+            "ALTER TABLE generation_records ADD COLUMN IF NOT EXISTS "
+            "model_resolution_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE stage_model_selections ADD COLUMN IF NOT EXISTS "
+            "availability_status VARCHAR(30) NOT NULL DEFAULT 'available'"
+        ))
         # Existing development databases predate the explicit video and final
         # composition review boundaries.  Replace the old status check so a
         # worker can persist those review states instead of failing after video

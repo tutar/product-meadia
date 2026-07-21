@@ -20,6 +20,8 @@ class GenerationRecord(Base, UUIDMixin, TimestampMixin):
     provider_payload = Column(JSONB, nullable=False, default=dict)
     media_asset_ids = Column(JSONB, nullable=False, default=list)
     provenance = Column(JSONB, nullable=False, default=dict)
+    # Frozen provider/model resolution, deliberately excluding credentials.
+    model_resolution_snapshot = Column(JSONB, nullable=False, default=dict)
     training_candidate = Column(String(20), nullable=False, default="pending_review")
 
     task = relationship("VideoTask", back_populates="generation_records")

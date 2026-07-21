@@ -9,6 +9,8 @@ from src.config import settings
 from langfuse import observe
 from src.tools.retry import retry_async
 from src.tasks.generation_records import record_generation
+from src.database import AsyncSessionLocal
+from src.services.model_invocation import ModelInvocationBoundary
 
 client = AsyncOpenAI(base_url=settings.litellm_base_url, api_key=settings.litellm_api_key)
 
@@ -68,14 +70,18 @@ def normalize_tts_audio(audio: bytes, target_duration_seconds: float) -> bytes:
 
 @retry_async(max_attempts=3)
 @observe(name="generate_tts")
-async def generate_tts(text: str, *, target_duration_seconds: float | None = None) -> dict:
+async def generate_tts(text: str, *, target_duration_seconds: float | None = None, task_id: str | None = None) -> dict:
     """Generate TTS audio via LiteLLM (VoxCPM2), OpenAI-compatible /v1/audio/speech."""
-    response = await client.audio.speech.create(
-        model="voxcpm2",
-        input=text,
-        voice="default",
-    )
-    audio = response.content
+    if task_id:
+        from uuid import UUID
+        async with AsyncSessionLocal() as db:
+            resolved = await ModelInvocationBoundary().generate_speech(db, UUID(task_id), text)
+        audio = resolved.content
+        provider, model = resolved.model_resolution_snapshot["provider"], resolved.model_resolution_snapshot["model_id"]
+    else:
+        response = await client.audio.speech.create(model="voxcpm2", input=text, voice="default")
+        audio = response.content
+        provider, model = "litellm", "voxcpm2"
     natural_duration = estimate_speech_duration_seconds(text)
     # A Shot Plan controls visual pacing, not speech rate. Never let a longer
     # visual plan make a slow provider response appear acceptable.
@@ -89,5 +95,5 @@ async def generate_tts(text: str, *, target_duration_seconds: float | None = Non
         "words": [],
         "tts_duration_seconds": wav_duration_seconds(audio),
     }
-    await record_generation("litellm", "voxcpm2", {"voice": "default", "target_duration_seconds": target_duration_seconds}, {"text": text}, {"tts_duration_seconds": result["tts_duration_seconds"]}, {"model": "voxcpm2", "input": text, "voice": "default"})
+    await record_generation(provider, model, {"voice": "default", "target_duration_seconds": target_duration_seconds}, {"text": text}, {"tts_duration_seconds": result["tts_duration_seconds"]}, {"model": model, "input": text, "voice": "default"})
     return result

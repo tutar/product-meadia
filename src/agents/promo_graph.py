@@ -54,6 +54,7 @@ async def composition_options(state: VideoAgentState) -> dict:
             "Return only JSON with clip_duration (3-7), subtitle_offset (6-18), and subtitle_size (24-42).",
             "Adjust this video composition using the reviewer guidance:" + guidance,
             temperature=0.2,
+            task_id=state.get("task_id"), model_stage="creative_planning",
         )
         proposed = json.loads(result)
         return {
@@ -112,7 +113,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             return {}
         if state.get("creative_brief"):
             return {}
-        result = await llm_chat("scriptwriter", CREATIVE_BRIEF_SYSTEM, format_product_context(state["product_info"]) + review_guidance(state, "creative_brief"), temperature=0.4)
+        result = await llm_chat("scriptwriter", CREATIVE_BRIEF_SYSTEM, format_product_context(state["product_info"]) + review_guidance(state, "creative_brief"), temperature=0.4, task_id=state.get("task_id"), model_stage="creative_planning")
         return {"creative_brief": json.loads(result)}
 
     async def wait_creative_brief_review(state: VideoAgentState) -> dict:
@@ -129,7 +130,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         info = state["product_info"]
         prompt = format_product_context(info) + "\nCreative Brief: " + json.dumps(state.get("creative_brief", {})) + review_guidance(state, "script")
         system = SCRIPT_SYSTEM.format(image_count=state["image_count"])
-        result = await llm_chat("scriptwriter", system, prompt, temperature=0.7)
+        result = await llm_chat("scriptwriter", system, prompt, temperature=0.7, task_id=state.get("task_id"), model_stage="scriptwriting")
         data = json.loads(result)
         return {
             "script_content": data["script"],
@@ -149,7 +150,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             return {}
         if state.get("shot_plan"):
             return {}
-        result = await llm_chat("scriptwriter", SHOT_PLAN_SYSTEM, json.dumps({"script": state["script_content"], "voiceover": state["voiceover_text"], "creative_brief": state.get("creative_brief", {})}) + review_guidance(state, "shot_plan"), temperature=0.4)
+        result = await llm_chat("scriptwriter", SHOT_PLAN_SYSTEM, json.dumps({"script": state["script_content"], "voiceover": state["voiceover_text"], "creative_brief": state.get("creative_brief", {})}) + review_guidance(state, "shot_plan"), temperature=0.4, task_id=state.get("task_id"), model_stage="creative_planning")
         return {"shot_plan": json.loads(result).get("shots", [])}
 
     async def wait_shot_plan_review(state: VideoAgentState) -> dict:
@@ -183,6 +184,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                 url = await generate_image(
                     p + review_guidance(state, "image", old.get("id") if old else None),
                     ref_image_url=state.get("main_image_data_uri") or None,
+                    task_id=state.get("task_id"),
                 )
                 images.append({"sort_order": i, "image_url": url, "status": "pending_review", **(keyframes[i] if i < len(keyframes) else {})})
         return {"generated_images": images, "clip_segments": segments}
@@ -214,6 +216,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                     or f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}")
                     + f"\n\nReviewer improvement guidance:\n{guidance}",
                     image_urls=image_urls,
+                    task_id=state.get("task_id"),
                 )
             return {"video_clips": clips, "video_clips_reused": False, "regenerated_clip_indexes": list(feedback_by_index)}
         clips = []
@@ -225,6 +228,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                 prompt=((segments[index].get("video_motion_prompt") if index < len(segments) else None)
                 or f"Cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}") + review_guidance(state, "video_clip"),
                 image_urls=image_urls,
+                task_id=state.get("task_id"),
             )
             clips.append(clip_url)
         return {"video_clips": clips, "video_clips_reused": False}
@@ -233,7 +237,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("tts_audio_url") and not review_guidance(state, "composition"):
             return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"]}
         voiceover = state.get("voiceover_text") or state.get("edited_script_content") or state["script_content"]
-        result = await generate_tts(voiceover)
+        result = await generate_tts(voiceover, task_id=state.get("task_id"))
         return {
             "tts_audio_url": result["audio_url"],
             "tts_words": result["words"],

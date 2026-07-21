@@ -50,7 +50,7 @@ async def composition_options(state: VideoAgentState) -> dict:
     if not guidance:
         return defaults
     try:
-        result = await llm_chat("scriptwriter", "Return only JSON with subtitle_offset (6-18) and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2)
+        result = await llm_chat("scriptwriter", "Return only JSON with subtitle_offset (6-18) and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2, task_id=state.get("task_id"), model_stage="creative_planning")
         proposed = json.loads(result)
         return {"subtitle_offset": min(18, max(6, int(proposed.get("subtitle_offset", 12)))), "subtitle_size": min(42, max(24, int(proposed.get("subtitle_size", 30))))}
     except (OpenAIError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
@@ -67,9 +67,9 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
             return {"character_image_url": state["character_image_url"]}
         info = state["product_info"]
         prompt = CHARACTER_PROMPT.format(product_context=format_product_context(info)) + review_guidance(state, "character")
-        result = await llm_chat("scriptwriter", "You are a character designer.", prompt)
+        result = await llm_chat("scriptwriter", "You are a character designer.", prompt, task_id=state.get("task_id"), model_stage="creative_planning")
         image_url = await generate_image(
-            result, ref_image_url=state.get("main_image_data_uri") or None
+            result, ref_image_url=state.get("main_image_data_uri") or None, task_id=state.get("task_id")
         )
         return {"character_image_url": image_url}
 
@@ -81,7 +81,7 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
             return {}
         info = state["product_info"]
         prompt = SCRIPT_PROMPT.format(product_context=format_product_context(info)) + review_guidance(state, "script")
-        result = await llm_chat("scriptwriter", "You are a product speaking in first person.", prompt)
+        result = await llm_chat("scriptwriter", "You are a product speaking in first person.", prompt, task_id=state.get("task_id"), model_stage="scriptwriting")
         data = json.loads(result)
         return {"script_content": data["script"], "voiceover_text": data["voiceover"]}
 
@@ -94,7 +94,7 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
             words = state["tts_words"]
         else:
             tts_result = await generate_tts(
-                state.get("edited_script_content") or state["script_content"]
+                state.get("edited_script_content") or state["script_content"], task_id=state.get("task_id")
             )
             audio_url = tts_result["audio_url"]
             words = tts_result["words"]
