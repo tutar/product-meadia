@@ -30,6 +30,8 @@ from src.models.generation_record import GenerationRecord
 from src.models.media_asset import MediaAsset
 from src.models.composition_source import CompositionSourceSnapshot
 from src.services.composition_sources import canonicalize_html, html_checksum
+from src.models.model_configuration import StageModelSelection
+from src.services.generation_audit import persist_generation_record as persist_model_generation_record
 
 # Celery invokes each task through asyncio.run(), creating a new event loop.
 # Asyncpg connections cannot move between those loops, so this worker must not
@@ -123,6 +125,11 @@ async def _async_run(task_id: str, celery_task_id: str):
             main_image_data_uri = ""
             if main_image_asset_id := snapshot.get("main_image_asset_id"):
                 main_image_data_uri = await media.data_uri(main_image_asset_id, task.user_id)
+            clip_selection = await db.scalar(select(StageModelSelection).where(
+                StageModelSelection.task_id == task.id,
+                StageModelSelection.stage == "clip_video",
+            ))
+            clip_model_constraints = dict((clip_selection.resolution_snapshot or {}).get("constraints") or {}) if clip_selection else {}
 
             initial_state: VideoAgentState = {
                 "task_id": str(task.id),
@@ -133,7 +140,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "image_count": task.image_count,
                 "creative_brief": {}, "creative_brief_approved": False,
                 "shot_plan": [], "shot_plan_approved": False,
-                "clip_segments": [], "editing_blueprint": [],
+                "clip_segments": [], "clip_model_constraints": clip_model_constraints, "editing_blueprint": [],
                 "viral_url": "",
                 "script_content": "", "edited_script_content": "", "image_prompts": [],
                 "voiceover_text": "", "generated_images": [], "video_clips": [], "video_clips_reused": False,
@@ -333,13 +340,16 @@ async def _async_run(task_id: str, celery_task_id: str):
                     **normalized_input,
                     "media_assets": [{"id": str(asset.id), "checksum": asset.checksum} for asset in assets],
                 }
-                record_db.add(GenerationRecord(
-                    task_id=task_id, stage=execution_stage(substep), substep=substep,
+                record = await persist_model_generation_record(
+                    record_db, task_id=task_id, execution_stage=execution_stage(substep), substep=substep,
                     attempt=attempt_number, provider=provider, model=model, parameters=parameters,
                     normalized_input=normalized_input, normalized_output=normalized_output,
                     provider_payload=provider_payload,
-                    provenance={"workflow_commit": settings.git_commit, "prompt_template_hash": parameters.get("prompt_template_hash")},
-                ))
+                )
+                record.provenance = {
+                    "workflow_commit": settings.git_commit,
+                    "prompt_template_hash": parameters.get("prompt_template_hash"),
+                }
                 await record_db.commit()
 
         generation_recorder_token = set_generation_recorder(persist_generation_record)

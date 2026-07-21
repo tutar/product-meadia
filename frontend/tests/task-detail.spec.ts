@@ -102,6 +102,35 @@ test("completed stage opens generation materials with the latest record", async 
   await expect(materials.getByText("asset-brief-1")).toBeVisible();
 });
 
+test("generation materials show the frozen model selection provenance", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-provenance", route => route.fulfill({ json: { id: "task-provenance", status: "script_review", type: "promo", image_count: 1, progress_log: [{ attempt: 1, stage: "scripting", step: "generate_script", status: "completed" }] } }));
+  await page.route("**/api/v1/tasks/task-provenance/script", route => route.fulfill({ json: { id: "script", task_id: "task-provenance", content: "Script", image_prompts: [], voiceover_text: "Script", status: "pending_review" } }));
+  await page.route("**/api/v1/tasks/task-provenance/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-provenance/video-candidates", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-provenance/generation-records**", route => route.fulfill({ json: [{ id: "record", task_id: "task-provenance", stage: "scripting", substep: "generate_script", attempt: 1, provider: "openai", model: "gpt-4.1-mini", parameters: {}, normalized_input: {}, normalized_output: {}, provider_payload: {}, media_asset_ids: [], provenance: {}, model_resolution_snapshot: { provider: "openai", model_id: "gpt-4.1-mini", selection_version: 2, availability_status: "available" }, training_candidate: "pending_review", created_at: "2026-07-21T00:00:00Z" }] }));
+
+  await page.goto("/tasks/task-provenance");
+  const log = page.getByRole("region", { name: "Execution Log" });
+  await log.getByRole("button", { name: "Attempt 1" }).click();
+  await log.getByRole("button", { name: "Writing script" }).click();
+  const materials = page.getByRole("dialog", { name: "Generation materials" });
+  await expect(materials.getByText("Selection v2 · available")).toBeVisible();
+});
+
+test("task detail exposes a revoked stage as waiting for explicit replacement", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-replacement", route => route.fulfill({ json: { id: "task-replacement", status: "script_review", type: "promo", image_count: 1, progress_log: [] } }));
+  await page.route("**/api/v1/tasks/task-replacement/script", route => route.fulfill({ json: { id: "script", task_id: "task-replacement", content: "Script", image_prompts: [], voiceover_text: "Script", status: "pending_review" } }));
+  await page.route("**/api/v1/tasks/task-replacement/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-replacement/video-candidates", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-replacement/stage-model-selections", route => route.fulfill({ json: [{ stage: "clip_video", selection_version: 2, availability_status: "replacement_required", resolution_snapshot: { provider: "google", model_id: "veo-3" } }] }));
+  await page.goto("/tasks/task-replacement");
+  await expect(page.getByRole("region", { name: "Frozen model selections" })).toContainText("clip_video: google / veo-3 · Selection v2 · replacement_required");
+});
+
 test("promo workspace reviews an ordered Shot Plan before generating keyframes", async ({ page }) => {
   let planApproved = false;
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));

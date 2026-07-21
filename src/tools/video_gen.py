@@ -7,6 +7,8 @@ import httpx
 from src.config import settings
 from langfuse import observe
 from src.tasks.generation_records import record_generation
+from src.database import AsyncSessionLocal
+from src.services.model_invocation import ModelInvocationBoundary
 
 HEADERS = {
     "Authorization": f"Bearer {settings.litellm_api_key}",
@@ -49,11 +51,31 @@ async def _provider_image_urls(client: httpx.AsyncClient, image_urls: list[str])
 
 
 @observe(name="generate_video")
-async def generate_video(prompt: str, image_urls: list[str] | None = None) -> str:
+async def generate_video(
+    prompt: str, image_urls: list[str] | None = None, *, task_id: str | None = None, seconds: int | None = None,
+) -> str:
     """Generate video via LiteLLM-proxied Agnes Video V2.0.
 
     Uses OpenAI-compatible /v1/videos endpoint (create + poll).
     """
+    if task_id:
+        from uuid import UUID
+        async with AsyncSessionLocal() as db:
+            resolved = await ModelInvocationBoundary().generate_video(
+                db, UUID(task_id), prompt, seconds=seconds or SELECTED_VIDEO_MODEL.max_duration_seconds,
+                image_urls=image_urls or [],
+            )
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as file:
+            file.write(resolved.content)
+            path = file.name
+        model = resolved.model_resolution_snapshot["model_id"]
+        await record_generation(
+            resolved.model_resolution_snapshot["provider"], model,
+            {"width": 1152, "height": 768, "num_frames": 121, "frame_rate": 24},
+            {"prompt": prompt, "keyframe_count": len(image_urls or [])}, {"result": "video generated"},
+            {"model": model, "prompt": prompt, "keyframe_count": len(image_urls or [])},
+        )
+        return path
     payload = {
         "model": SELECTED_VIDEO_MODEL.model,
         "prompt": prompt,

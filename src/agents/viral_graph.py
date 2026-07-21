@@ -45,7 +45,7 @@ async def composition_options(state: VideoAgentState) -> dict:
     if not guidance:
         return defaults
     try:
-        result = await llm_chat("scriptwriter", "Return only JSON with clip_duration (3-7), subtitle_offset (6-18), and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2)
+        result = await llm_chat("scriptwriter", "Return only JSON with clip_duration (3-7), subtitle_offset (6-18), and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2, task_id=state.get("task_id"), model_stage="creative_planning")
         proposed = json.loads(result)
         return {"clip_duration": min(7, max(3, int(proposed.get("clip_duration", 5)))), "subtitle_offset": min(18, max(6, int(proposed.get("subtitle_offset", 10)))), "subtitle_size": min(42, max(24, int(proposed.get("subtitle_size", 32))))}
     except (OpenAIError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
@@ -60,8 +60,8 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     async def analyze_source(state: VideoAgentState) -> dict:
         if state.get("viral_analysis"):
             return {"viral_analysis": state["viral_analysis"]}
-        transcript = await transcribe_audio(state["viral_url"])
-        analysis = await analyze_video_structure(transcript)
+        transcript = await transcribe_audio(state["viral_url"], task_id=state.get("task_id"))
+        analysis = await analyze_video_structure(transcript, task_id=state.get("task_id"))
         return {"viral_analysis": analysis}
 
     async def wait_viral_confirm(state: VideoAgentState) -> dict:
@@ -75,7 +75,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             original_script=str(state.get("viral_analysis", {})),
             product_context=format_product_context(info) + review_guidance(state, "script"),
         )
-        result = await llm_chat("scriptwriter", "You are a video script adapter.", user_prompt)
+        result = await llm_chat("scriptwriter", "You are a video script adapter.", user_prompt, task_id=state.get("task_id"), model_stage="scriptwriting")
         data = json.loads(result)
         return {
             "script_content": data["script"],
@@ -94,6 +94,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             url = await generate_image(
                 p + review_guidance(state, "image"),
                 ref_image_url=state.get("main_image_data_uri") or None,
+                task_id=state.get("task_id"),
             )
             images.append({"sort_order": i, "image_url": url, "status": "pending_review"})
         return {"generated_images": images}
@@ -109,6 +110,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                     clip = await generate_video(
                         prompt=f"Smooth cinematic movement showcasing {state['product_info']['category']['name']} product {state['product_info']['name']}" + review_guidance(state, "video_clip"),
                         image_urls=[img["image_url"]],
+                        task_id=state.get("task_id"),
                     )
                     clips.append(clip)
 
@@ -117,7 +119,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             words = state["tts_words"]
         else:
             tts_result = await generate_tts(
-                state.get("edited_script_content") or state["script_content"]
+                state.get("edited_script_content") or state["script_content"], task_id=state.get("task_id")
             )
             audio_url = tts_result["audio_url"]
             words = tts_result["words"]

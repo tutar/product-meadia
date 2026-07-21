@@ -113,6 +113,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const [generationRecords, setGenerationRecords] = useState<any[]>([]);
   const [selectedGenerationRecord, setSelectedGenerationRecord] = useState<any>(null);
   const [sourcePreview, setSourcePreview] = useState<string | null>(null);
+  const [stageModelSelections, setStageModelSelections] = useState<any[]>([]);
   const videoViewerRef = useRef<HTMLVideoElement | null>(null);
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
@@ -124,7 +125,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     if (!id) return;
     const tdata = await api.get(`/tasks/${id}`).then(r => r.data).catch(() => null);
     if (!tdata) return;
-    const [bdata, sdata, pdata, edata, idata, vdata] = await Promise.all([
+    const [bdata, sdata, pdata, edata, idata, vdata, selections] = await Promise.all([
       ["creative_brief_review", ...SCRIPT_AVAILABLE_STATES].includes(tdata.status)
         ? api.get(`/tasks/${id}/creative-brief`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
@@ -139,6 +140,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         : Promise.resolve(null),
       api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
       api.get(`/tasks/${id}/video-candidates`).then(r => r.data).catch(() => []),
+      api.get(`/tasks/${id}/stage-model-selections`).then(r => r.data).catch(() => []),
     ]);
     if (tdata) { setTask(tdata); onTaskLoaded?.(tdata); }
     setCreativeBrief(bdata);
@@ -149,6 +151,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     if (sdata) { setScript(sdata); setEditedContent(sdata.edited_content || sdata.content); }
     if (idata.length > 0) setImages(idata);
     setVideoCandidates(vdata);
+    setStageModelSelections(selections);
   }, [id, onTaskLoaded]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -445,7 +448,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                 {generationRecords.map(record => <button key={record.id} className={selectedGenerationRecord?.id === record.id ? "is-selected" : ""} onClick={() => setSelectedGenerationRecord(record)}><span>{t("generationMaterials.attempt", { number: record.attempt })}</span><small>{record.model}</small></button>)}
               </nav>
               {selectedGenerationRecord && <article className="generation-materials-content">
-                <section><h3>{t("generationMaterials.overview")}</h3><dl><div><dt>{t("generationMaterials.provider")}</dt><dd>{selectedGenerationRecord.provider} / {selectedGenerationRecord.model}</dd></div><div><dt>{t("generationMaterials.substep")}</dt><dd>{nodeLabel(selectedGenerationRecord.substep)}</dd></div><div><dt>{t("generationMaterials.provenance")}</dt><dd>{selectedGenerationRecord.provenance?.workflow_commit || "—"}</dd></div></dl></section>
+                <section><h3>{t("generationMaterials.overview")}</h3><dl><div><dt>{t("generationMaterials.provider")}</dt><dd>{selectedGenerationRecord.provider} / {selectedGenerationRecord.model}</dd></div>{selectedGenerationRecord.model_resolution_snapshot?.selection_version && <div><dt>Model selection</dt><dd>{`Selection v${selectedGenerationRecord.model_resolution_snapshot.selection_version} · ${selectedGenerationRecord.model_resolution_snapshot.availability_status || "available"}`}</dd></div>}<div><dt>{t("generationMaterials.substep")}</dt><dd>{nodeLabel(selectedGenerationRecord.substep)}</dd></div><div><dt>{t("generationMaterials.provenance")}</dt><dd>{selectedGenerationRecord.provenance?.workflow_commit || "—"}</dd></div></dl></section>
                 <section><h3>{t("generationMaterials.input")}</h3><pre>{JSON.stringify(selectedGenerationRecord.normalized_input, null, 2)}</pre></section>
                 <section><h3>{t("generationMaterials.output")}</h3><pre>{JSON.stringify(selectedGenerationRecord.normalized_output, null, 2)}</pre></section>
                 {selectedGenerationRecord.media_asset_ids?.length > 0 && <section><h3>{t("generationMaterials.mediaAssets")}</h3><ul className="generation-material-refs">{selectedGenerationRecord.media_asset_ids.map((assetId: string) => <li key={assetId}><code>{assetId}</code></li>)}</ul></section>}
@@ -455,6 +458,11 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
           </aside>
         </div>
       )}
+
+      {stageModelSelections.length > 0 && <section className="card mt-6" aria-label="Frozen model selections">
+        <h2>Frozen model selections</h2>
+        <ul>{stageModelSelections.map(selection => <li key={selection.stage}>{selection.stage}: {selection.resolution_snapshot?.provider} / {selection.resolution_snapshot?.model_id} · Selection v{selection.selection_version} · {selection.availability_status}</li>)}</ul>
+      </section>}
 
       {task.error_message && (
         <div className="card mb-6" style={{ borderColor: "var(--danger)", background: "rgba(248,113,113,0.06)" }}>

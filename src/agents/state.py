@@ -25,6 +25,7 @@ class VideoAgentState(TypedDict):
     shot_plan: list[dict]
     shot_plan_approved: bool
     clip_segments: list[dict]
+    clip_model_constraints: dict
     editing_blueprint: list[dict]
 
     script_content: str
