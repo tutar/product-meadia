@@ -73,6 +73,7 @@ def _db():
 async def test_create_asset_commits_owned_product(monkeypatch):
     db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={'color':'red'}))
     asset_id=uuid4(); db.execute.return_value=SimpleNamespace(scalar_one_or_none=lambda:SimpleNamespace(id=asset_id))
+    monkeypatch.setattr(products_api, 'owned', AsyncMock(return_value=SimpleNamespace(user_id=user.id, main_image_asset_id=asset_id)))
     result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_asset_id=asset_id),db,user)
     assert result.user_id==user.id and result.main_image_asset_id==asset_id; db.add.assert_called_once(); db.commit.assert_awaited_once()
 
@@ -86,6 +87,7 @@ async def test_create_persists_ordered_packaging_images(monkeypatch):
         SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=first)),
         SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=second)),
     ]
+    monkeypatch.setattr(products_api, 'owned', AsyncMock(return_value=SimpleNamespace(id=uuid4())))
     body=ProductCreate(category_id=uuid4(), category_template_version=1, name='Cup', main_image_asset_id=main, packaging_image_asset_ids=[first, second])
     await products_api.create(body, db, user)
     packaging = [call.args[0] for call in db.add.call_args_list if call.args[0].__class__.__name__ == 'ProductPackagingImage']
@@ -100,6 +102,7 @@ async def test_create_without_image_returns_422(monkeypatch):
 @pytest.mark.asyncio
 async def test_create_candidate_uses_owned_candidate(monkeypatch):
     asset_id=uuid4(); db,user=_db(),SimpleNamespace(id=uuid4()); monkeypatch.setattr(products_api,'prepare',AsyncMock(return_value={})); monkeypatch.setattr(products_api,'consume_candidate',AsyncMock(return_value=SimpleNamespace(asset_id=asset_id)))
+    monkeypatch.setattr(products_api, 'owned', AsyncMock(return_value=SimpleNamespace(main_image_asset_id=asset_id, main_image_source='ai')))
     result=await products_api.create(ProductCreate(category_id=uuid4(),category_template_version=1,name='Cup',main_image_candidate_id=uuid4()),db,user)
     assert result.main_image_asset_id==asset_id and result.main_image_source=='ai'; db.commit.assert_awaited_once()
 
