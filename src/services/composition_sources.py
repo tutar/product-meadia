@@ -8,8 +8,8 @@ from uuid import UUID
 from src.services.media_service import MediaService
 
 
-_VIDEO_SRC = re.compile(r'(<video\\b[^>]*?\\bsrc=")[^"]+("[^>]*>)', re.IGNORECASE)
-_AUDIO_SRC = re.compile(r'(<audio\\b[^>]*?\\bsrc=")[^"]+("[^>]*>)', re.IGNORECASE)
+_VIDEO_SRC = re.compile(r'(<video\b[^>]*?\bsrc=")[^"]+("[^>]*>)', re.IGNORECASE)
+_AUDIO_SRC = re.compile(r'(<audio\b[^>]*?\bsrc=")[^"]+("[^>]*>)', re.IGNORECASE)
 _ASSET_SRC = re.compile(r'asset://([0-9a-fA-F-]{36})')
 
 
