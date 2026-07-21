@@ -499,6 +499,12 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                 <button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(reviewCandidates, candidate.id)}>⛶</button>
               </div>}
               <div className="video-review-actions">
+                {candidate.kind === "composition" && <>
+                  <button className="btn btn-ghost btn-sm" onClick={() => window.open(`/api/v1/tasks/${id}/video-candidates/${candidate.id}/composition-source/preview`, "_blank", "noopener,noreferrer")}>Preview source</button>
+                  <a className="btn btn-ghost btn-sm" href={`/api/v1/tasks/${id}/video-candidates/${candidate.id}/composition-source/download`}>Download HTML</a>
+                  <button className="btn btn-ghost btn-sm" onClick={() => runAction(`replay:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/replay`); await fetchData(); })}>Replay source</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => runAction(`reconstruct:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/reconstruct`); await fetchData(); })}>Reconstruct source</button>
+                </>}
                 {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
                   <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>{t("task.approve")}</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(String(candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button>

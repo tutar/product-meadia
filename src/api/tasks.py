@@ -35,7 +35,7 @@ from src.tasks.recovery import is_stale_task
 from src.services.product_context import build_product_snapshot
 from src.api.media import get_media_service
 from src.services.media_service import MediaService
-from src.services.composition_sources import materialize_html
+from src.services.composition_sources import materialize_html, html_checksum
 from src.tools.render import render_hyperframes
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -405,6 +405,33 @@ async def replay_composition_source(
     task.status = "composition_review"
     await db.commit()
     return VideoCandidateResponse.model_validate(replay)
+
+
+@router.post("/{task_id}/video-candidates/{candidate_id}/composition-source/reconstruct", response_model=CompositionSourceResponse)
+async def reconstruct_composition_source(
+    task_id: UUID, candidate_id: UUID, db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service),
+):
+    """Create an explicitly inferred source for a legacy candidate with no capture."""
+    task = await owned_task(db, user, task_id)
+    if await db.scalar(select(CompositionSourceSnapshot).where(CompositionSourceSnapshot.candidate_id == candidate_id)):
+        raise HTTPException(status_code=409, detail="Composition source snapshot already exists")
+    blueprint = await db.scalar(select(EditingBlueprint).where(EditingBlueprint.task_id == task_id))
+    clips = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id, VideoCandidate.kind == "clip", VideoCandidate.is_current.is_(True), VideoCandidate.asset_id.is_not(None)).order_by(VideoCandidate.sort_order))).all()
+    audio = await db.scalar(select(MediaAsset).where(MediaAsset.task_id == task_id, MediaAsset.category == "tts_audio", MediaAsset.status == "available").order_by(MediaAsset.created_at.desc()))
+    if not blueprint or not clips or not audio:
+        raise HTTPException(status_code=422, detail="Insufficient retained inputs to reconstruct composition source")
+    entries = blueprint.entries
+    if len(entries) != len(clips):
+        raise HTTPException(status_code=422, detail="Editing Blueprint no longer matches retained clip candidates")
+    duration = sum(float(entry.get("duration_seconds", 0)) for entry in entries)
+    videos = "".join(f'<video id="clip-{index}" src="asset://{clip.asset_id}" data-start="{entry["start_seconds"]}" data-duration="{entry["duration_seconds"]}" data-track-index="0" muted playsinline></video>' for index, (clip, entry) in enumerate(zip(clips, entries)))
+    canonical_html = f'<div data-composition-id="reconstructed-{candidate_id}" data-duration="{duration}" data-width="1152" data-height="768"><audio id="voiceover" src="asset://{audio.id}" data-start="0" data-track-index="10"></audio>{videos}</div>'
+    asset = await media.create_asset(owner_user_id=user.id, category="composition_source", data=canonical_html.encode(), content_type="text/html; charset=utf-8", filename=f"{task_id}-reconstructed-source.html", task_id=task.id, source_provider="composition-reconstruction", idempotency_key=f"candidate:{candidate_id}:reconstructed-source")
+    snapshot = CompositionSourceSnapshot(task_id=task.id, candidate_id=candidate_id, asset_id=asset.id, source_kind="reconstructed", canonical_html_checksum=html_checksum(canonical_html), input_asset_ids=[*[str(clip.asset_id) for clip in clips], str(audio.id)], render_spec={"width": 1152, "height": 768}, provenance={"source_candidate_id": str(candidate_id), "editing_blueprint_id": str(blueprint.id), "input_selection": "current_candidates"}, reconstruction_notes="Reconstructed after the original HTML was unavailable; uses current retained clip candidates and latest retained voiceover.")
+    db.add(snapshot)
+    await db.commit()
+    return CompositionSourceResponse(id=snapshot.id, task_id=snapshot.task_id, candidate_id=snapshot.candidate_id, asset_id=snapshot.asset_id, source_kind=snapshot.source_kind, canonical_html_checksum=snapshot.canonical_html_checksum, input_asset_ids=snapshot.input_asset_ids, render_spec=snapshot.render_spec, provenance=snapshot.provenance, reconstruction_notes=snapshot.reconstruction_notes)
 
 
 @router.get("/{task_id}/script", response_model=ScriptResponse)
