@@ -67,8 +67,12 @@ The approved still-image visual anchor for one Clip Segment, used as its image-t
 _Avoid_: Product main image, packaging image, Shot
 
 **Editing Blueprint**:
-The approved, deterministic assembly instructions derived from a Shot Plan, including shot order, target durations, voiceover alignment, transitions, subtitles, and audio markers.
+The user-editable, deterministic assembly instructions derived from a Shot Plan, including shot order, target durations, voiceover alignment, transitions, subtitles, and audio markers. Recomposition renders a saved changed Editing Blueprint without a model invocation.
 _Avoid_: Free-form post-generation editing, fixed-duration clip loop
+
+**Editing Blueprint Review**:
+The conditional waiting state in which a user confirms or adjusts an Editing Blueprint after an upstream Voiceover Candidate or Video Clip Candidate changes duration. Approval authorizes deterministic composition; unchanged durations and the initial flow do not require this review.
+_Avoid_: Automatic timing repair, model-driven composition editing
 
 **Runtime Guidance**:
 An optional intended final-runtime budget for a Video Task. It guides Creative Brief and Shot Plan pacing but never truncates a final composition; without it, runtime follows the approved script and voiceover naturally.
@@ -150,6 +154,14 @@ _Avoid_: Destructive historical deletion, silent credential rotation, automatic 
 A User-owned setting that automatically approves newly completed Script or Image Candidates at their review point. It never advances a candidate that was already waiting for review when the setting changed.
 _Avoid_: Task default, retroactive approval
 
+**Voiceover Candidate**:
+An immutable, task-owned, versioned record for an audio Media Asset generated for a Video Task, with its narration text, timing metadata, review status, and generation provenance retained for review and deterministic composition. Regeneration creates a new candidate rather than replacing prior audio.
+_Avoid_: Mutable task audio, final soundtrack
+
+**Voiceover Review**:
+The waiting state after a Voiceover Candidate is generated in which a user approves it or edits the narration text and requests a replacement with feedback. A replacement requires changed narration text or an explicitly chosen compatible replacement configuration, invokes only the voice-generation selection, and otherwise uses its latest configuration revision; approval automatically advances to deterministic composition, or to lip-sync generation and then composition for a task with lip sync.
+_Avoid_: Voice Generation, final composition review, implicit TTS retry
+
 **Video Clip Candidate**:
 An immutable, task-owned Persistent Media version generated from one approved Image Candidate. Each current candidate is reviewed independently before it may be used in a Final Composition.
 _Avoid_: Generated video, mutable clip
@@ -163,8 +175,12 @@ The waiting state in which each current Video Clip Candidate is approved or repl
 _Avoid_: Final approval, video generation
 
 **Composition Review**:
-The waiting state in which a Final Composition Candidate is approved or rejected. Approval completes the Video Task; rejection creates a replacement Final Composition Candidate from the approved inputs.
+The waiting state in which a Final Composition Candidate is approved or rejected. Approval completes the Video Task; rejection either renders a user-edited Editing Blueprint deterministically or initiates an explicit Review Rewind to replace an upstream candidate.
 _Avoid_: Video review, retry
+
+**Review Rewind**:
+The explicit user action from Composition Review that returns a Video Task to Voiceover Review or Video Review because an upstream candidate needs replacement. A rewind to Video Review identifies one or more Clip Segments for replacement, retains unaffected approved candidates, and never silently invokes a model.
+_Avoid_: System retry, implicit regeneration, task restart
 
 **Task Cancellation**:
 The requested and confirmed stop of a non-terminal Video Task. Cancellation preserves the task and its Execution Log until the user separately deletes the terminal task.
