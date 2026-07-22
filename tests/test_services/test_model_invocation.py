@@ -6,6 +6,13 @@ from src.models.user import User
 from src.services.model_credentials import encrypt_credential
 
 
+def test_litellm_client_does_not_duplicate_an_explicit_provider_prefix():
+    from src.services.model_invocation import LiteLLMClient
+
+    assert LiteLLMClient._model_name("openai", "agnes-image-2.1-flash") == "openai/agnes-image-2.1-flash"
+    assert LiteLLMClient._model_name("openai", "openai/agnes-image-2.1-flash") == "openai/agnes-image-2.1-flash"
+
+
 @pytest.mark.asyncio
 async def test_stage_start_freezes_latest_private_configuration_and_passes_its_api_base(db_session):
     from src.services.model_invocation import ModelInvocationBoundary

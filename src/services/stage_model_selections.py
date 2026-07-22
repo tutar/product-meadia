@@ -127,15 +127,15 @@ async def replace_stage_model_selection(
     """Explicitly replace one unstarted stage; generated output is never reinterpreted."""
     if task.user_id != owner_user_id:
         raise HTTPException(status_code=404, detail="Task not found")
+    if stage not in stages_for_task(task.type):
+        raise HTTPException(status_code=404, detail="Unknown stage for task")
     selection = await db.scalar(select(StageModelSelection).where(
         StageModelSelection.task_id == task.id, StageModelSelection.stage == stage,
     ))
-    if selection is None:
-        raise HTTPException(status_code=404, detail="Stage selection not found")
-    if selection.started_at is not None and selection.availability_status == "available" and not explicit_regeneration:
+    if selection is not None and selection.started_at is not None and selection.availability_status == "available" and not explicit_regeneration:
         raise HTTPException(status_code=409, detail="Stage has already started; regenerate explicitly to replace its model")
-    if explicit_regeneration and stage != "clip_video":
-        raise HTTPException(status_code=422, detail="Only clip regeneration can replace a started model selection")
+    if explicit_regeneration and stage not in ("clip_video", "voice_generation"):
+        raise HTTPException(status_code=422, detail="Only clip or voice regeneration can replace a started model selection")
     configuration = await db.scalar(select(ModelConfiguration).options(selectinload(ModelConfiguration.catalog_model)).where(
         ModelConfiguration.id == replacement_configuration_id,
         ModelConfiguration.owner_user_id == owner_user_id,
@@ -146,10 +146,19 @@ async def replace_stage_model_selection(
         raise HTTPException(status_code=422, detail="Only verified model configurations can be selected")
     if stage not in configuration_details(configuration)["capabilities"]:
         raise HTTPException(status_code=422, detail="Model configuration is not compatible with this stage")
-    selection.model_configuration_id = configuration.id
-    selection.selection_version += 1
-    selection.resolution_snapshot = {"configuration_id": str(configuration.id), "selection_version": selection.selection_version, "state": "pending_resolution"}
-    selection.availability_status = "available"
-    selection.started_at = None
+    if selection is None:
+        selection = StageModelSelection(
+            task_id=task.id, stage=stage, model_configuration_id=configuration.id,
+            selection_version=1,
+            resolution_snapshot={"configuration_id": str(configuration.id), "selection_version": 1, "state": "pending_resolution"},
+            availability_status="available",
+        )
+        db.add(selection)
+    else:
+        selection.model_configuration_id = configuration.id
+        selection.selection_version += 1
+        selection.resolution_snapshot = {"configuration_id": str(configuration.id), "selection_version": selection.selection_version, "state": "pending_resolution"}
+        selection.availability_status = "available"
+        selection.started_at = None
     await db.flush()
     return selection

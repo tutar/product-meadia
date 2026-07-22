@@ -107,6 +107,32 @@ async def test_user_can_replace_only_an_unstarted_frozen_stage_selection(db_sess
 
 
 @pytest.mark.asyncio
+async def test_user_can_explicitly_assign_a_missing_legacy_stage_selection(db_session):
+    from src.services.stage_model_selections import replace_stage_model_selection
+
+    owner = User(email="legacy-selection@example.test", hashed_password="x")
+    configuration = ModelConfiguration(
+        owner=owner, adapter="openai_compatible", model_id="agnes-image-2.1-flash",
+        display_name="Agnes Image", capabilities=["keyframe_image"], constraints={},
+        credential_ciphertext="encrypted", verification_status="verified",
+    )
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, configuration, task])
+    await db_session.commit()
+
+    selection = await replace_stage_model_selection(
+        db_session, task, owner.id, "keyframe_image", configuration.id,
+    )
+
+    assert selection.model_configuration_id == configuration.id
+    assert selection.selection_version == 1
+    assert selection.resolution_snapshot == {
+        "configuration_id": str(configuration.id), "selection_version": 1,
+        "state": "pending_resolution",
+    }
+
+
+@pytest.mark.asyncio
 async def test_explicit_regeneration_can_replace_a_started_clip_selection(db_session):
     from src.services.stage_model_selections import replace_stage_model_selection
 

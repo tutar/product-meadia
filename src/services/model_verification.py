@@ -5,7 +5,7 @@ a safe authentication/model-reachability probe remains unverified.
 """
 from dataclasses import dataclass
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, NotFoundError
 
 from src.models.model_configuration import ModelConfiguration
 from src.services.model_credentials import decrypt_credential
@@ -54,5 +54,10 @@ class SafeModelVerifier:
             # completion/image/video generation side effect.
             await AsyncOpenAI(api_key=credential, base_url=api_base).models.retrieve(model_id)
             return VerificationResult(True)
+        except NotFoundError:
+            # Many OpenAI-compatible image endpoints implement generation but
+            # not the optional Models API. Their first real invocation is the
+            # availability check rather than treating this as bad credentials.
+            return VerificationResult(False, SAFE_PROBE_UNAVAILABLE)
         except Exception as error:
             return VerificationResult(False, "Credential or model verification failed")
