@@ -20,7 +20,7 @@ type CreateTaskFormProps = {
 };
 
 export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", onCreated, onCancel }: CreateTaskFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState("");
   const [type, setType] = useState("promo");
@@ -49,6 +49,7 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
   }, []);
 
   const stagesForTask = MODEL_STAGES.filter(stage => type === "viral" || stage !== "viral_analysis");
+  const firstUseLabel = i18n.language.startsWith("zh") ? "待首次调用验证" : "Pending first-use verification";
   const defaultFor = (stage: ModelStage) => stageDefaults.find(item => item.stage === stage)?.model_configuration_id || "";
   const updateStageOverride = (stage: ModelStage, value: string) => {
     setStageOverrides(current => {
@@ -134,13 +135,13 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
           <h3 id="task-model-selection-heading" className="mb-2">{t("modelConfigurations.taskSelectionsTitle")}</h3>
           <p className="text-secondary text-sm mb-6">{t("modelConfigurations.taskSelectionsDescription")}</p>
           {stagesForTask.map(stage => {
-            const eligible = modelConfigurations.filter(item => item.verification_status === "verified" && item.capabilities.includes(stage));
+            const eligible = modelConfigurations.filter(item => (item.verification_status === "verified" || item.first_use_eligible) && item.capabilities.includes(stage));
             const value = stageOverrides[stage] || defaultFor(stage);
             return <div className="form-group" key={stage}>
               <label className="form-label" htmlFor={`task-model-${stage}`}>{t(`modelConfigurations.stages.${stage}`)}</label>
               <select id={`task-model-${stage}`} className="select" value={value} onChange={event => updateStageOverride(stage, event.target.value)}>
                 <option value="">{t("modelConfigurations.noDefault")}</option>
-                {eligible.map(item => <option key={item.id} value={item.id}>{item.provider} / {item.display_name}</option>)}
+                {eligible.map(item => <option key={item.id} value={item.id}>{item.provider} / {item.display_name}{item.verification_status !== "verified" && item.first_use_eligible ? ` · ${firstUseLabel}` : ""}</option>)}
               </select>
             </div>;
           })}
