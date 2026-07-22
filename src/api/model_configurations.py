@@ -103,7 +103,7 @@ async def update_model_configuration(configuration_id: UUID, body: ModelConfigur
     changed = False
     for field in ("display_name", "adapter", "api_base", "model_id", "capabilities", "constraints"):
         value = getattr(body, field)
-        if value is not None and getattr(configuration, field) != value:
+        if field in body.model_fields_set and getattr(configuration, field) != value:
             setattr(configuration, field, value)
             changed = True
     if body.credential is not None:

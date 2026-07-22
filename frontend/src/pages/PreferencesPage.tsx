@@ -25,6 +25,12 @@ export default function PreferencesPage() {
   const [customApiBase, setCustomApiBase] = useState("");
   const [customModelId, setCustomModelId] = useState("");
   const [customCapabilities, setCustomCapabilities] = useState<ModelStage[]>([]);
+  const [editingConfiguration, setEditingConfiguration] = useState<ModelConfiguration | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [editingApiBase, setEditingApiBase] = useState("");
+  const [editingModelId, setEditingModelId] = useState("");
+  const [editingCapabilities, setEditingCapabilities] = useState<ModelStage[]>([]);
+  const [editingCredential, setEditingCredential] = useState("");
   const [replacementCredentials, setReplacementCredentials] = useState<Record<string, string>>({});
   const [modelError, setModelError] = useState("");
 
@@ -70,6 +76,24 @@ export default function PreferencesPage() {
     setModelError("");
     try { await modelConfigurationsApi.update(id, { credential: replacement }); setReplacementCredentials(current => ({ ...current, [id]: "" })); await loadModels(); }
     catch { setModelError("Unable to rotate the credential."); }
+  };
+  const openEdit = (configuration: ModelConfiguration) => {
+    setEditingConfiguration(configuration);
+    setEditingName(configuration.display_name);
+    setEditingApiBase(configuration.api_base || "");
+    setEditingModelId(configuration.model_id);
+    setEditingCapabilities(configuration.capabilities);
+    setEditingCredential("");
+    setModelError("");
+  };
+  const toggleEditingCapability = (stage: ModelStage) => setEditingCapabilities(current => current.includes(stage) ? current.filter(item => item !== stage) : [...current, stage]);
+  const saveEdit = async () => {
+    if (!editingConfiguration || !editingName || !editingModelId || !editingCapabilities.length) return;
+    setModelError("");
+    try {
+      await modelConfigurationsApi.update(editingConfiguration.id, { display_name: editingName, api_base: editingApiBase || null, model_id: editingModelId, capabilities: editingCapabilities, credential: editingCredential || undefined });
+      setEditingConfiguration(null); setEditingCredential(""); await loadModels();
+    } catch { setModelError(t("modelConfigurations.errors.verify")); }
   };
 
   return <section className="preferences-page">
@@ -126,6 +150,7 @@ export default function PreferencesPage() {
         {configurations.map(configuration => <li key={configuration.id} className="model-configuration-row">
           <div className="model-configuration-identity"><strong>{configuration.provider} / {configuration.display_name}</strong><span className={`model-status status-${configuration.verification_status}`}>{t(`modelConfigurations.status.${configuration.verification_status}`)}</span>{configuration.verification_error && <small role="status">{configuration.verification_error}</small>}</div>
           <div className="model-configuration-actions">
+            {configuration.verification_status !== "revoked" && <button className="btn btn-ghost btn-sm" type="button" onClick={() => openEdit(configuration)}>{t("catalog.edit")}</button>}
             {configuration.verification_status === "unverified" && <button className="btn btn-secondary btn-sm" type="button" onClick={() => void modelConfigurationsApi.verify(configuration.id).then(loadModels).catch(() => setModelError(t("modelConfigurations.errors.verify")))}>{t("modelConfigurations.verify")}</button>}
             {configuration.verification_status !== "revoked" && <button className="btn btn-ghost btn-sm" type="button" onClick={() => void modelConfigurationsApi.revoke(configuration.id).then(loadModels).catch(() => setModelError(t("modelConfigurations.errors.revoke")))}>{t("modelConfigurations.revoke")}</button>}
             <button className="btn btn-ghost btn-sm" type="button" onClick={() => void modelConfigurationsApi.remove(configuration.id).then(loadModels).catch(() => setModelError(t("modelConfigurations.errors.delete")))}>{t("modelConfigurations.delete")}</button>
@@ -133,6 +158,17 @@ export default function PreferencesPage() {
           {configuration.verification_status !== "revoked" && <div className="model-credential-rotation">
             <label className="model-field"><span>{t("modelConfigurations.newCredential")}</span><input className="input" aria-label={t("modelConfigurations.newCredentialFor", { model: configuration.display_name })} type="password" value={replacementCredentials[configuration.id] || ""} onChange={event => setReplacementCredentials(current => ({ ...current, [configuration.id]: event.target.value }))} autoComplete="off" /></label>
             <button className="btn btn-secondary btn-sm" type="button" disabled={!replacementCredentials[configuration.id]} onClick={() => void rotateCredential(configuration.id)}>{t("modelConfigurations.rotate")}</button>
+          </div>}
+          {editingConfiguration?.id === configuration.id && <div className="model-edit-panel" aria-label={t("catalog.edit", { model: configuration.display_name })}>
+            <div><h4>{t("catalog.edit")} · {configuration.display_name}</h4><p>{t("modelConfigurations.description")}</p></div>
+            <div className="model-connection-fields">
+              <label className="model-field"><span>{t("modelConfigurations.privateName")}</span><input className="input" value={editingName} onChange={event => setEditingName(event.target.value)} /></label>
+              <label className="model-field"><span>{t("modelConfigurations.privateEndpoint")} <small>{t("modelConfigurations.optional")}</small></span><input className="input" value={editingApiBase} onChange={event => setEditingApiBase(event.target.value)} /></label>
+              <label className="model-field"><span>{t("modelConfigurations.privateModelId")}</span><input className="input" value={editingModelId} onChange={event => setEditingModelId(event.target.value)} /></label>
+              <fieldset className="model-capabilities"><legend>{t("modelConfigurations.capabilities")}</legend>{STAGES.map(([stage, label]) => <label key={stage}><input type="checkbox" checked={editingCapabilities.includes(stage)} onChange={() => toggleEditingCapability(stage)} />{t(`modelConfigurations.stages.${label}`)}</label>)}</fieldset>
+              <label className="model-field"><span>{t("modelConfigurations.newCredential")} <small>{t("modelConfigurations.optional")}</small></span><input className="input" type="password" value={editingCredential} onChange={event => setEditingCredential(event.target.value)} autoComplete="off" /></label>
+              <div className="card-actions"><button className="btn btn-primary btn-sm" type="button" disabled={!editingName || !editingModelId || !editingCapabilities.length} onClick={() => void saveEdit()}>{t("catalog.save")}</button><button className="btn btn-ghost btn-sm" type="button" onClick={() => setEditingConfiguration(null)}>{t("catalog.cancel")}</button></div>
+            </div>
           </div>}
         </li>)}
       </ul>}
