@@ -116,6 +116,30 @@ async def test_user_creates_a_capability_compatible_configuration_without_creden
 
 
 @pytest.mark.asyncio
+async def test_user_can_create_an_agnes_video_v2_clip_model_configuration(db_session):
+    from src.api.model_configurations import create_model_configuration, list_provider_model_catalog
+    from src.schemas.model_configuration import ModelConfigurationCreate
+
+    user = User(email="agnes-video-owner@example.test", hashed_password="x")
+    db_session.add(user)
+    await db_session.commit()
+
+    video_models = await list_provider_model_catalog(capability="clip_video", db=db_session)
+    agnes = next(model for model in video_models if model.provider == "agnes_video_v2")
+    configuration = await create_model_configuration(
+        ModelConfigurationCreate(catalog_model_id=agnes.id, credential="user-byok"),
+        db=db_session,
+        user=user,
+    )
+
+    assert configuration.adapter == "agnes_video_v2"
+    assert configuration.api_base == "https://apihub.agnes-ai.com"
+    assert configuration.model_id == "agnes-video-v2.0"
+    assert configuration.capabilities == ["clip_video"]
+    assert "user-byok" not in str(configuration.model_dump())
+
+
+@pytest.mark.asyncio
 async def test_template_configuration_copies_runtime_fields_without_a_live_catalog_dependency(db_session):
     from src.api.model_configurations import create_model_configuration, list_provider_model_catalog
     from src.models.model_configuration import ProviderModelCatalog

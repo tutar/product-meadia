@@ -61,10 +61,14 @@ async def create_model_configuration(body: ModelConfigurationCreate, db: AsyncSe
     catalog = await _catalog_model(db, body.catalog_model_id) if body.catalog_model_id else None
     if body.use_platform_default:
         raise HTTPException(status_code=422, detail="Platform defaults are not supported")
+    adapter = body.adapter or catalog.provider
+    api_base = body.api_base
+    if adapter == "agnes_video_v2" and api_base is None:
+        api_base = "https://apihub.agnes-ai.com"
     configuration = ModelConfiguration(
         owner_user_id=user.id, catalog_model_id=catalog.id if catalog else None,
-        adapter=body.adapter or catalog.provider,
-        api_base=body.api_base,
+        adapter=adapter,
+        api_base=api_base,
         model_id=body.model_id or catalog.model_id,
         display_name=body.display_name or catalog.display_name,
         capabilities=body.capabilities if body.capabilities is not None else list(catalog.capabilities),

@@ -9,6 +9,7 @@ CATALOG_ENTRIES = (
     ("openai", "gpt-4.1-mini", "GPT-4.1 mini", ["creative_planning", "scriptwriting"], {}, True),
     ("openai", "gpt-image-1", "GPT Image 1", ["keyframe_image"], {"max_keyframes": 1}, False),
     ("google", "veo-3.0-generate-preview", "Veo 3", ["clip_video"], {"max_duration_seconds": 8, "max_keyframes": 2}, False),
+    ("agnes_video_v2", "agnes-video-v2.0", "Agnes Video V2.0", ["clip_video"], {"max_duration_seconds": 5, "max_keyframes": 2}, False),
     ("openai", "gpt-4o-mini-tts", "GPT-4o mini TTS", ["voice_generation"], {}, True),
     ("openai", "gpt-4o-transcribe", "GPT-4o Transcribe", ["viral_analysis"], {}, True),
 )

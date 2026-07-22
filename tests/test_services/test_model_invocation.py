@@ -289,3 +289,76 @@ async def test_video_invocation_uses_the_frozen_clip_selection(db_session):
     result = await ModelInvocationBoundary(FakeLiteLLM()).generate_video(db_session, task.id, "Orbit", seconds=5, image_urls=["https://image"])
 
     assert result.content == b"mp4-bytes"
+
+
+@pytest.mark.asyncio
+async def test_agnes_video_v2_invocation_uses_the_frozen_clip_selection(db_session):
+    from src.services.model_invocation import ModelInvocationBoundary
+
+    class FakeAgnesVideo:
+        async def generate(self, *, api_base, model_id, credential, prompt, seconds, image_urls):
+            assert api_base == "https://apihub.agnes-ai.com"
+            assert model_id == "agnes-video-v2.0"
+            assert credential == "agnes-video-secret"
+            assert prompt == "Animate the bottle"
+            assert seconds == 5
+            assert image_urls == ["https://media.example/keyframe.png"]
+            return b"agnes-mp4-bytes"
+
+    owner = User(email="agnes-video-invocation-owner@example.test", hashed_password="x")
+    configuration = ModelConfiguration(
+        owner=owner, adapter="agnes_video_v2", api_base="https://apihub.agnes-ai.com",
+        model_id="agnes-video-v2.0", display_name="Agnes Video", capabilities=["clip_video"],
+        constraints={"max_duration_seconds": 5}, credential_ciphertext=encrypt_credential("agnes-video-secret"),
+        verification_status="unverified", verification_error="No safe verification probe is configured; availability will be established on first use",
+    )
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, configuration, task])
+    await db_session.flush()
+    db_session.add(StageModelSelection(
+        task_id=task.id, stage="clip_video", model_configuration_id=configuration.id,
+        resolution_snapshot={"adapter": "agnes_video_v2", "api_base": "https://apihub.agnes-ai.com", "model_id": "agnes-video-v2.0", "constraints": {"max_duration_seconds": 5}},
+    ))
+    await db_session.commit()
+
+    result = await ModelInvocationBoundary(agnes_video_client=FakeAgnesVideo()).generate_video(
+        db_session, task.id, "Animate the bottle", seconds=5, image_urls=["https://media.example/keyframe.png"],
+    )
+
+    assert result.content == b"agnes-mp4-bytes"
+
+
+@pytest.mark.asyncio
+async def test_agnes_video_v2_failure_records_a_safe_availability_summary(db_session):
+    from src.services.agnes_video_v2 import AgnesVideoV2Failure
+    from src.services.model_invocation import ModelAvailabilityFailure, ModelInvocationBoundary
+
+    class FailingAgnesVideo:
+        async def generate(self, **_kwargs):
+            raise AgnesVideoV2Failure("Agnes video service request failed")
+
+    owner = User(email="agnes-video-failure-owner@example.test", hashed_password="x")
+    configuration = ModelConfiguration(
+        owner=owner, adapter="agnes_video_v2", api_base="https://apihub.agnes-ai.com",
+        model_id="agnes-video-v2.0", display_name="Agnes Video", capabilities=["clip_video"],
+        constraints={"max_duration_seconds": 5}, credential_ciphertext=encrypt_credential("secret"),
+        verification_status="unverified", verification_error="No safe verification probe is configured; availability will be established on first use",
+    )
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, configuration, task])
+    await db_session.flush()
+    selection = StageModelSelection(
+        task_id=task.id, stage="clip_video", model_configuration_id=configuration.id,
+        resolution_snapshot={"adapter": "agnes_video_v2", "api_base": "https://apihub.agnes-ai.com", "model_id": "agnes-video-v2.0", "constraints": {"max_duration_seconds": 5}},
+    )
+    db_session.add(selection)
+    await db_session.commit()
+
+    with pytest.raises(ModelAvailabilityFailure):
+        await ModelInvocationBoundary(agnes_video_client=FailingAgnesVideo()).generate_video(
+            db_session, task.id, "Animate", seconds=5, image_urls=["https://storage.example/keyframe.png"],
+        )
+
+    await db_session.refresh(configuration)
+    assert configuration.verification_status == "unavailable"
+    assert configuration.verification_error == "Agnes video service request failed"

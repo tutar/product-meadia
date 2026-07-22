@@ -20,6 +20,7 @@ from src.models.model_configuration import ModelConfiguration, StageModelSelecti
 from src.services.model_credentials import decrypt_credential
 from src.services.model_verification import is_selectable
 from src.services.stage_model_selections import resolve_stage_model_selection
+from src.services.agnes_video_v2 import AgnesVideoV2Client, AgnesVideoV2Failure
 
 
 class ModelAvailabilityFailure(RuntimeError):
@@ -134,8 +135,9 @@ class LiteLLMClient:
 
 
 class ModelInvocationBoundary:
-    def __init__(self, client=None):
+    def __init__(self, client=None, agnes_video_client=None):
         self.client = client or LiteLLMClient()
+        self.agnes_video_client = agnes_video_client or AgnesVideoV2Client()
 
     async def _selection_and_credential(self, db: AsyncSession, task_id: UUID, stage: str):
         selection = await db.scalar(select(StageModelSelection).options(
@@ -174,8 +176,9 @@ class ModelInvocationBoundary:
         kwargs["model_id"] = snapshot["model_id"]
         return kwargs
 
-    async def _record_failure(self, db: AsyncSession, selection: StageModelSelection, configuration: ModelConfiguration) -> None:
+    async def _record_failure(self, db: AsyncSession, selection: StageModelSelection, configuration: ModelConfiguration, summary: str) -> None:
         configuration.verification_status = "unavailable"
+        configuration.verification_error = summary
         # A failed invocation produced no candidate. It must wait for an
         # explicit replacement, rather than looking like a completed stage.
         selection.availability_status = "replacement_required"
@@ -199,7 +202,8 @@ class ModelInvocationBoundary:
                 return await request()
             except Exception as error:
                 if attempt == 2:
-                    await self._record_failure(db, selection, configuration)
+                    summary = str(error) if isinstance(error, AgnesVideoV2Failure) else "Model invocation failed"
+                    await self._record_failure(db, selection, configuration, summary)
                     raise ModelAvailabilityFailure(f"Frozen model selection for {stage} is unavailable") from error
         raise AssertionError("unreachable")
 
@@ -250,6 +254,15 @@ class ModelInvocationBoundary:
         maximum = int((snapshot.get("constraints") or {}).get("max_duration_seconds", seconds))
         if seconds > maximum:
             raise ModelAvailabilityFailure("Requested clip duration exceeds the frozen model constraint")
-        video = await self._invoke_same_selection(db, selection, configuration, "clip_video", lambda: self.client.video(**self._call_parameters(snapshot, credential=credential, prompt=prompt, seconds=seconds, image_urls=image_urls)))
+        if snapshot.get("adapter") == "agnes_video_v2":
+            video = await self._invoke_same_selection(
+                db, selection, configuration, "clip_video",
+                lambda: self.agnes_video_client.generate(
+                    api_base=snapshot["api_base"], model_id=snapshot["model_id"], credential=credential,
+                    prompt=prompt, seconds=seconds, image_urls=image_urls,
+                ),
+            )
+        else:
+            video = await self._invoke_same_selection(db, selection, configuration, "clip_video", lambda: self.client.video(**self._call_parameters(snapshot, credential=credential, prompt=prompt, seconds=seconds, image_urls=image_urls)))
         await self._record_success(db, selection)
         return InvocationResult(content=video, model_resolution_snapshot=dict(selection.resolution_snapshot))
