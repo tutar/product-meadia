@@ -137,6 +137,10 @@ async def ensure_schema() -> None:
             "generation_context JSONB NOT NULL DEFAULT '{}'::jsonb"
         ))
         await connection.execute(text(
+            "ALTER TABLE video_candidates ADD COLUMN IF NOT EXISTS "
+            "recomposed_from_candidate_id UUID REFERENCES video_candidates(id) ON DELETE SET NULL"
+        ))
+        await connection.execute(text(
             "ALTER TABLE main_image_candidates ADD COLUMN IF NOT EXISTS "
             "asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL"
         ))
