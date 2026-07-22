@@ -26,7 +26,10 @@ async def llm_chat(
                 db, UUID(task_id), model_stage, messages, temperature=temperature,
             )
         content = resolved.content
-        provider = resolved.model_resolution_snapshot["provider"]
+        provider = (
+            resolved.model_resolution_snapshot.get("provider")
+            or resolved.model_resolution_snapshot["adapter"]
+        )
         actual_model = resolved.model_resolution_snapshot["model_id"]
     else:
         resp = await client.chat.completions.create(model=model, messages=messages, temperature=temperature)
