@@ -71,3 +71,16 @@ test("new video submits an explicit verified stage override to freeze with the t
   await page.getByRole("button", { name: /generate video|生成视频/i }).click();
   await expect(page).toHaveURL(/task=task-3/);
 });
+
+test("new video translates model selections in Chinese", async ({ page }) => {
+  await mockWorkspace(page);
+  await page.addInitScript(() => localStorage.setItem("i18nextLng", "zh"));
+
+  await page.goto("/dashboard?mode=create&product=product-1");
+
+  await expect(page.getByRole("heading", { name: "模型选择" })).toBeVisible();
+  await expect(page.getByLabel("创意策划")).toBeVisible();
+  await expect(page.getByLabel("关键帧图片生成")).toBeVisible();
+  await expect(page.getByLabel("创意策划")).toContainText("未设置默认值");
+  await expect(page.getByText("Model selections")).toHaveCount(0);
+});

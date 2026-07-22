@@ -8,10 +8,8 @@ import MediaImage from "../components/MediaImage";
 import { modelConfigurationsApi } from "../api/modelConfigurations";
 import type { ModelConfiguration, ModelStage, StageModelDefault } from "../api/modelConfigurations";
 
-const MODEL_STAGES: Array<[ModelStage, string]> = [
-  ["creative_planning", "Creative planning"], ["scriptwriting", "Scriptwriting"],
-  ["keyframe_image", "Keyframe image generation"], ["clip_video", "Clip video generation"],
-  ["voice_generation", "Voice generation"], ["viral_analysis", "Viral analysis / transcription"],
+const MODEL_STAGES: ModelStage[] = [
+  "creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation", "viral_analysis",
 ];
 
 type CreateTaskFormProps = {
@@ -50,7 +48,7 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
       .catch(() => {});
   }, []);
 
-  const stagesForTask = MODEL_STAGES.filter(([stage]) => type === "viral" || stage !== "viral_analysis");
+  const stagesForTask = MODEL_STAGES.filter(stage => type === "viral" || stage !== "viral_analysis");
   const defaultFor = (stage: ModelStage) => stageDefaults.find(item => item.stage === stage)?.model_configuration_id || "";
   const updateStageOverride = (stage: ModelStage, value: string) => {
     setStageOverrides(current => {
@@ -133,15 +131,15 @@ export function CreateTaskForm({ initialCategoryId = "", initialProductId = "", 
         </div>
 
         {modelConfigurations.length > 0 && <div className="card mb-6" aria-labelledby="task-model-selection-heading">
-          <h3 id="task-model-selection-heading" className="mb-2">Model selections</h3>
-          <p className="text-secondary text-sm mb-6">Selections are frozen with this Video Task. Only verified, capability-compatible configurations are available.</p>
-          {stagesForTask.map(([stage, label]) => {
+          <h3 id="task-model-selection-heading" className="mb-2">{t("modelConfigurations.taskSelectionsTitle")}</h3>
+          <p className="text-secondary text-sm mb-6">{t("modelConfigurations.taskSelectionsDescription")}</p>
+          {stagesForTask.map(stage => {
             const eligible = modelConfigurations.filter(item => item.verification_status === "verified" && item.capabilities.includes(stage));
             const value = stageOverrides[stage] || defaultFor(stage);
             return <div className="form-group" key={stage}>
-              <label className="form-label" htmlFor={`task-model-${stage}`}>{label}</label>
+              <label className="form-label" htmlFor={`task-model-${stage}`}>{t(`modelConfigurations.stages.${stage}`)}</label>
               <select id={`task-model-${stage}`} className="select" value={value} onChange={event => updateStageOverride(stage, event.target.value)}>
-                <option value="">No configured default</option>
+                <option value="">{t("modelConfigurations.noDefault")}</option>
                 {eligible.map(item => <option key={item.id} value={item.id}>{item.provider} / {item.display_name}</option>)}
               </select>
             </div>;
