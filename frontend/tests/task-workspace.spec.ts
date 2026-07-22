@@ -72,6 +72,19 @@ test("new video submits an explicit verified stage override to freeze with the t
   await expect(page).toHaveURL(/task=task-3/);
 });
 
+test("new video offers first-use eligible models with a verification marker", async ({ page }) => {
+  await mockWorkspace(page);
+  await page.route("**/api/v1/model-configurations", route => route.fulfill({ json: [{
+    id: "local-voice", catalog_model_id: null, provider: "openai_compatible", model_id: "voice-v1", display_name: "Local voice",
+    capabilities: ["voice_generation"], constraints: {}, uses_platform_default: false, verification_status: "unverified",
+    verification_error: "No credential is configured; availability will be established on first use", first_use_eligible: true,
+    verified_at: null, revoked_at: null, created_at: "2026-07-21T00:00:00Z", updated_at: "2026-07-21T00:00:00Z",
+  }] }));
+  await page.goto("/dashboard?mode=create&product=product-1");
+
+  await expect(page.getByLabel("Voice generation").getByRole("option", { name: /local voice.*pending first-use verification/i })).toBeVisible();
+});
+
 test("new video translates model selections in Chinese", async ({ page }) => {
   await mockWorkspace(page);
   await page.addInitScript(() => localStorage.setItem("i18nextLng", "zh"));
