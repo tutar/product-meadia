@@ -89,6 +89,13 @@ class RegenerateRequest(BaseModel):
     model_configuration_id: UUID | None = None
 
 
+class VoiceoverReview(BaseModel):
+    action: str
+    narration_text: str | None = None
+    model_configuration_id: UUID | None = None
+    feedback: str | None = None
+
+
 class VideoCandidateResponse(BaseModel):
     id: UUID
     task_id: UUID
@@ -99,9 +106,23 @@ class VideoCandidateResponse(BaseModel):
     version: int
     status: str
     is_current: bool
+    has_composition_source: bool = False
     generation_context: dict = {}
 
     model_config = {"from_attributes": True}
+
+
+class VoiceoverCandidateResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    asset_id: UUID | None = None
+    access_url: str | None = None
+    narration_text: str
+    duration_seconds: float
+    version: int
+    status: str
+    is_current: bool
+    generation_context: dict = {}
 
 
 class EditingBlueprintResponse(BaseModel):
@@ -110,6 +131,15 @@ class EditingBlueprintResponse(BaseModel):
     entries: list[dict]
     status: str
     model_config = {"from_attributes": True}
+
+
+class EditingBlueprintUpdate(BaseModel):
+    entries: list[dict]
+
+
+class ReviewRewindRequest(BaseModel):
+    target: str
+    clip_candidate_ids: list[UUID] = []
 
 
 class ViralAnalysisResponse(BaseModel):
@@ -183,6 +213,7 @@ class TaskResponse(BaseModel):
     status: str
     current_step: str | None
     image_count: int
+    voiceover_review_enabled: bool = False
     error_message: str | None
     result_video_url: str | None
     result_video_asset_id: UUID | None = None

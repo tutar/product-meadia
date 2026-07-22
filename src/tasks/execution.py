@@ -25,7 +25,8 @@ NODE_TO_STAGE = {
     "generate_images": "imaging",
     "generate_video_clips": "video_gen",
     "generate_clips_and_voiceover": "video_gen",
-    "generate_voiceover": "video_gen",
+    "generate_voiceover": "voice_review",
+    "generate_lipsync": "video_gen",
     "generate_tts_and_lipsync": "video_gen",
     "composite_video": "compositing",
     "composite": "compositing",
@@ -92,6 +93,8 @@ def review_status_for_node(node_name: str | None) -> str:
         "generate_rewritten_script": "script_review",
         "generate_images": "image_review",
         "generate_character": "character_review",
+        "generate_voiceover": "voice_review",
+        "generate_clips_and_voiceover": "voice_review",
     }.get(node_name or "", "script_review")
 
 

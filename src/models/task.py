@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, Text, Column, ForeignKey
+from sqlalchemy import String, Integer, Text, Column, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from src.models.base import Base, UUIDMixin, TimestampMixin
@@ -20,6 +20,9 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     )
     celery_task_id = Column(String(255), nullable=True)
     progress_log = Column(JSONB, nullable=False, default=list)
+    # Existing tasks retain the legacy review flow.  New tasks opt into the
+    # explicit voiceover/blueprint review workflow at creation time.
+    voiceover_review_enabled = Column(Boolean, nullable=False, default=False)
     user = relationship("User")
     product = relationship("Product")
     script = relationship("Script", back_populates="task", uselist=False)
@@ -28,6 +31,7 @@ class VideoTask(Base, UUIDMixin, TimestampMixin):
     editing_blueprint = relationship("EditingBlueprint", back_populates="task", uselist=False)
     images = relationship("GeneratedImage", back_populates="task")
     video_candidates = relationship("VideoCandidate", back_populates="task")
+    voiceover_candidates = relationship("VoiceoverCandidate", back_populates="task")
     generation_records = relationship("GenerationRecord", back_populates="task", passive_deletes=True)
     viral_analysis = relationship("ViralAnalysis", back_populates="task", uselist=False)
     result_video_asset = relationship("MediaAsset", foreign_keys=[result_video_asset_id])

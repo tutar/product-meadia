@@ -26,16 +26,16 @@ function ResumeButton({ taskId, onResumed }: { taskId: string; onResumed: () => 
   );
 }
 
-const REVIEW_STATES = ["creative_brief_review", "script_review", "shot_plan_review", "image_review", "character_review", "video_review", "composition_review"];
+const REVIEW_STATES = ["creative_brief_review", "script_review", "shot_plan_review", "image_review", "character_review", "video_review", "voice_review", "editing_blueprint_review", "composition_review"];
 const FINAL_STATES = ["done", "failed", "cancelled"];
-const STEPS_DISPLAY = ["pending", "planning", "creative_brief_review", "scripting", "script_review", "shot_plan_review", "imaging", "image_review", "video_gen", "video_review", "compositing", "composition_review", "done"];
+const STEPS_DISPLAY = ["pending", "planning", "creative_brief_review", "scripting", "script_review", "shot_plan_review", "imaging", "image_review", "video_gen", "video_review", "voice_review", "compositing", "editing_blueprint_review", "composition_review", "done"];
 const SCRIPT_AVAILABLE_STATES = ["script_review", "planning", "shot_plan_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 const SHOT_PLAN_AVAILABLE_STATES = ["shot_plan_review", "imaging", "image_review", "video_gen", "compositing", "done"];
 
 const STAGE_FOR_STEP: Record<string, string> = {
   analyze_source: "analysis", generate_script: "scripting", generate_rewritten_script: "scripting",
   generate_character: "character", generate_images: "imaging", generate_video_clips: "video_gen",
-  generate_clips_and_voiceover: "video_gen", generate_voiceover: "video_gen",
+  generate_clips_and_voiceover: "video_gen", generate_voiceover: "voice_review", generate_lipsync: "video_gen",
   generate_tts_and_lipsync: "video_gen", composite_video: "compositing", composite: "compositing",
 };
 
@@ -49,6 +49,7 @@ const PROGRESS_STAGE: Record<string, string> = {
   scripting: "scripting",
   imaging: "imaging",
   video_gen: "video_gen",
+  voice_review: "voice_review",
   compositing: "compositing",
 };
 
@@ -89,10 +90,13 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const [creativeBrief, setCreativeBrief] = useState<any>(null);
   const [shotPlan, setShotPlan] = useState<any>(null);
   const [editingBlueprint, setEditingBlueprint] = useState<any>(null);
+  const [editingBlueprintDraft, setEditingBlueprintDraft] = useState("");
   const [creativeBriefDraft, setCreativeBriefDraft] = useState("");
   const [shotPlanDraft, setShotPlanDraft] = useState("");
   const [images, setImages] = useState<any[]>([]);
   const [videoCandidates, setVideoCandidates] = useState<any[]>([]);
+  const [voiceoverCandidates, setVoiceoverCandidates] = useState<any[]>([]);
+  const [rewindClipIds, setRewindClipIds] = useState<string[]>([]);
   const [editedContent, setEditedContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
@@ -107,14 +111,11 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   const [viewerZoom, setViewerZoom] = useState(1);
   const [viewerPan, setViewerPan] = useState({ x: 0, y: 0 });
   const viewerDragRef = useRef<{ x: number; y: number } | null>(null);
-  const [videoViewerIds, setVideoViewerIds] = useState<string[] | null>(null);
-  const [videoViewerIndex, setVideoViewerIndex] = useState<number | null>(null);
   const [generationStage, setGenerationStage] = useState<string | null>(null);
   const [generationRecords, setGenerationRecords] = useState<any[]>([]);
   const [selectedGenerationRecord, setSelectedGenerationRecord] = useState<any>(null);
   const [sourcePreview, setSourcePreview] = useState<string | null>(null);
   const [stageModelSelections, setStageModelSelections] = useState<any[]>([]);
-  const videoViewerRef = useRef<HTMLVideoElement | null>(null);
   const runAction = async (key: string, action: () => Promise<void>) => {
     if (actionRef.current.has(key)) return;
     actionRef.current.add(key); setBusyActions([...actionRef.current]);
@@ -125,7 +126,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     if (!id) return;
     const tdata = await api.get(`/tasks/${id}`).then(r => r.data).catch(() => null);
     if (!tdata) return;
-    const [bdata, sdata, pdata, edata, idata, vdata, selections] = await Promise.all([
+    const [bdata, sdata, pdata, edata, idata, vdata, voiceData, selections] = await Promise.all([
       ["creative_brief_review", ...SCRIPT_AVAILABLE_STATES].includes(tdata.status)
         ? api.get(`/tasks/${id}/creative-brief`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
@@ -135,11 +136,12 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
       SHOT_PLAN_AVAILABLE_STATES.includes(tdata.status)
         ? api.get(`/tasks/${id}/shot-plan`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
-      ["composition_review", "done"].includes(tdata.status)
+      ["composition_review", "editing_blueprint_review", "done"].includes(tdata.status)
         ? api.get(`/tasks/${id}/editing-blueprint`).then(r => r.data).catch(() => null)
         : Promise.resolve(null),
       api.get(`/tasks/${id}/images`).then(r => r.data).catch(() => []),
       api.get(`/tasks/${id}/video-candidates`).then(r => r.data).catch(() => []),
+      api.get(`/tasks/${id}/voiceover-candidates`).then(r => r.data).catch(() => []),
       api.get(`/tasks/${id}/stage-model-selections`).then(r => r.data).catch(() => []),
     ]);
     if (tdata) { setTask(tdata); onTaskLoaded?.(tdata); }
@@ -147,10 +149,12 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     if (bdata) setCreativeBriefDraft(JSON.stringify(bdata.content, null, 2));
     setShotPlan(pdata);
     setEditingBlueprint(edata);
+    if (edata) setEditingBlueprintDraft(JSON.stringify(edata.entries, null, 2));
     if (pdata) setShotPlanDraft(JSON.stringify(pdata.shots, null, 2));
     if (sdata) { setScript(sdata); setEditedContent(sdata.edited_content || sdata.content); }
     if (idata.length > 0) setImages(idata);
     setVideoCandidates(vdata);
+    setVoiceoverCandidates(voiceData);
     setStageModelSelections(selections);
   }, [id, onTaskLoaded]);
 
@@ -168,24 +172,6 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   }, [viewerIndex, images.length]);
 
   useEffect(() => { setViewerZoom(1); setViewerPan({ x: 0, y: 0 }); }, [viewerIndex]);
-
-  useEffect(() => {
-    if (videoViewerIndex === null || !videoViewerIds) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setVideoViewerIndex(null); setVideoViewerIds(null); }
-      if (event.key === "ArrowLeft") { event.preventDefault(); setVideoViewerIndex(index => index === null ? null : (index - 1 + videoViewerIds.length) % videoViewerIds.length); }
-      if (event.key === "ArrowRight") { event.preventDefault(); setVideoViewerIndex(index => index === null ? null : (index + 1) % videoViewerIds.length); }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [videoViewerIndex, videoViewerIds]);
-
-  useEffect(() => {
-    if (videoViewerIndex === null) return;
-    for (const video of videoPreviewRefs.current.values()) video.pause();
-    const video = videoViewerRef.current;
-    if (video) { video.muted = true; video.currentTime = 0; void video.play().catch(() => undefined); }
-  }, [videoViewerIndex]);
 
   // Local HyperFrames outputs are served by the authenticated API endpoint;
   // fetch them with axios so the bearer token is included, then give the
@@ -274,16 +260,39 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     void videoPreviewRefs.current.get(candidateId)?.play().catch(() => undefined);
   };
 
-  const openKeyframeViewer = (index: number) => setViewerIndex(index);
-  const moveViewer = (offset: number) => setViewerIndex(index => index === null ? null : (index + offset + images.length) % images.length);
-  const openVideoViewer = (candidates: any[], candidateId: string) => {
-    const ids = candidates.map(candidate => candidate.id);
-    setVideoViewerIds(ids);
-    setVideoViewerIndex(Math.max(0, ids.indexOf(candidateId)));
+  const downloadCompositionSource = async (candidateId: string) => {
+    await runAction(`download-source:${candidateId}`, async () => {
+      const response = await api.get(`/tasks/${id}/video-candidates/${candidateId}/composition-source/download`, { responseType: "blob" });
+      const match = /filename="?([^";]+)"?/.exec(response.headers["content-disposition"] || "");
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = match?.[1] || "composition-source.html";
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    });
   };
 
+  const previewCompositionSource = async (candidateId: string) => {
+    await runAction(`preview-source:${candidateId}`, async () => {
+      const response = await api.get(`/tasks/${id}/video-candidates/${candidateId}/composition-source/preview`, { responseType: "text" });
+      setSourcePreview(response.data);
+    });
+  };
+
+  const openKeyframeViewer = (index: number) => setViewerIndex(index);
+  const moveViewer = (offset: number) => setViewerIndex(index => index === null ? null : (index + offset + images.length) % images.length);
   const regenerateVideoCandidate = async (candidateId: string, suggestion: string) => {
     await runAction(`video:${candidateId}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidateId}/regenerate`, { feedback: suggestion }); await fetchData(); });
+  };
+
+  const reviewVoiceoverCandidate = async (candidateId: string, action: "approve" | "regenerate", narration_text?: string) => {
+    await runAction(`voice:${candidateId}`, async () => { await api.put(`/tasks/${id}/voiceover-candidates/${candidateId}`, { action, narration_text }); await fetchData(); });
+  };
+
+  const recomposeBlueprint = async () => {
+    const entries = JSON.parse(editingBlueprintDraft);
+    await runAction("editing-blueprint", async () => { await api.put(`/tasks/${id}/editing-blueprint/recompose`, { entries }); await fetchData(); });
   };
 
   const openGenerationMaterials = async (stage: string) => {
@@ -346,11 +355,8 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
   };
   const toggle = (key: string, fallback: boolean) => setExpanded(current => ({ ...current, [key]: !(current[key] ?? fallback) }));
   const currentClipCandidates = videoCandidates.filter(candidate => candidate.is_current && candidate.kind === "clip");
+  const currentVoiceoverCandidate = voiceoverCandidates.find(candidate => candidate.is_current);
   const reviewCandidates = videoCandidates.filter(candidate => candidate.is_current && (task.status === "composition_review" ? candidate.kind === "composition" : candidate.kind === "clip"));
-  const videoViewerCandidates = videoViewerIds
-    ? videoViewerIds.map(candidateId => videoCandidates.find(candidate => candidate.id === candidateId)).filter(Boolean)
-    : [];
-  const activeVideoViewerCandidate = videoViewerIndex === null ? null : videoViewerCandidates[videoViewerIndex];
 
   return (
     <div className="task-detail">
@@ -459,9 +465,12 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
       )}
 
-      {stageModelSelections.length > 0 && <section className="card mt-6" aria-label="Frozen model selections">
-        <h2>Frozen model selections</h2>
-        <ul>{stageModelSelections.map(selection => <li key={selection.stage}>{selection.stage}: {selection.resolution_snapshot?.provider} / {selection.resolution_snapshot?.model_id} · Selection v{selection.selection_version} · {selection.availability_status}</li>)}</ul>
+      {stageModelSelections.length > 0 && <section className="card mt-6" aria-label={t("modelConfigurations.stageSelectionsTitle")}>
+        <h2>{t("modelConfigurations.stageSelectionsTitle")}</h2>
+        <ul>{stageModelSelections.map(selection => {
+          const pending = selection.resolution_snapshot?.state === "pending_resolution";
+          return <li key={selection.stage}>{selection.stage}: {pending ? t("modelConfigurations.pendingResolution") : `${selection.resolution_snapshot?.adapter || selection.resolution_snapshot?.provider} / ${selection.resolution_snapshot?.model_id}`} · Selection v{selection.selection_version} · {selection.availability_status}</li>;
+        })}</ul>
       </section>}
 
       {task.error_message && (
@@ -492,10 +501,22 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </div>
       )}
 
+      {task.status === "voice_review" && currentVoiceoverCandidate && (
+        <section className="card mb-6" aria-label={t("task.voiceoverReview")}>
+          <h3 className="mb-4">{t("task.voiceoverReview")}</h3>
+          {currentVoiceoverCandidate.access_url && <audio controls src={currentVoiceoverCandidate.access_url} style={{ width: "100%" }} />}
+          <p className="text-secondary text-sm mt-4">{currentVoiceoverCandidate.narration_text}</p>
+          <div className="flex gap-3 mt-4">
+            <button className="btn btn-primary btn-sm" onClick={() => void reviewVoiceoverCandidate(currentVoiceoverCandidate.id, "approve")}>{t("task.approve")}</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(t("task.replaceVoiceover"), text => reviewVoiceoverCandidate(currentVoiceoverCandidate.id, "regenerate", text))}>{t("task.replaceVoiceover")}</button>
+          </div>
+        </section>
+      )}
+
       {task.status === "composition_review" && currentClipCandidates.length > 0 && (
         <section className="card mb-6 media-video-review" aria-label={t("task.approvedShotSegments")}><h3 className="mb-4">{t("task.approvedShotSegments")}</h3><div className="video-review-grid">
-          {currentClipCandidates.map((candidate, index) => <article key={candidate.id} className="video-review-card">{candidate.access_url && <div className="video-preview-frame"><video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} controls muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} /><button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(currentClipCandidates, candidate.id)}>⛶</button></div>}</article>)}
-        </div></section>
+          {currentClipCandidates.map((candidate, index) => <article key={candidate.id} className="video-review-card"><label><input type="checkbox" checked={rewindClipIds.includes(candidate.id)} onChange={() => setRewindClipIds(ids => ids.includes(candidate.id) ? ids.filter(id => id !== candidate.id) : [...ids, candidate.id])} /> {t("task.returnClip")}</label>{candidate.access_url && <div className="video-preview-frame"><video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} controls muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} /></div>}</article>)}
+        </div>{task.voiceover_review_enabled && <div className="flex gap-3 mt-4"><button className="btn btn-ghost btn-sm" onClick={() => void runAction("rewind-voice", async () => { await api.post(`/tasks/${id}/composition-review/rewind`, { target: "voiceover" }); await fetchData(); })}>{t("task.returnVoiceover")}</button><button className="btn btn-ghost btn-sm" disabled={rewindClipIds.length === 0} onClick={() => void runAction("rewind-clips", async () => { await api.post(`/tasks/${id}/composition-review/rewind`, { target: "clips", clip_candidate_ids: rewindClipIds }); setRewindClipIds([]); await fetchData(); })}>{t("task.returnSelectedClips")}</button></div>}</section>
       )}
       {reviewCandidates.length > 0 && (
         <section className="card mb-6 media-video-review" aria-label={task.status === "composition_review" ? t("task.finalCompositionReview") : t("task.shotSegments")}>
@@ -505,18 +526,21 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
             <article key={candidate.id} className="video-review-card">
               {candidate.access_url && <div className="video-preview-frame">
                 <video ref={video => { if (video) videoPreviewRefs.current.set(candidate.id, video); else videoPreviewRefs.current.delete(candidate.id); }} src={candidate.access_url} controls muted playsInline preload="metadata" aria-label={t("task.videoClip", { number: index + 1 })} onPlay={() => playVideoPreview(candidate.id)} />
-                <button type="button" className="video-preview-expand" aria-label={t("task.openVideoViewer", { number: index + 1 })} onClick={() => openVideoViewer(reviewCandidates, candidate.id)}>⛶</button>
               </div>}
               <div className="video-review-actions">
                 {candidate.kind === "composition" && <>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setSourcePreview(`/api/v1/tasks/${id}/video-candidates/${candidate.id}/composition-source/preview`)}>Preview source</button>
-                  <a className="btn btn-ghost btn-sm" href={`/api/v1/tasks/${id}/video-candidates/${candidate.id}/composition-source/download`}>Download HTML</a>
-                  <button className="btn btn-ghost btn-sm" onClick={() => runAction(`replay:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/replay`); await fetchData(); })}>Replay source</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => runAction(`reconstruct:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/reconstruct`); await fetchData(); })}>Reconstruct source</button>
+                  {candidate.has_composition_source ? <>
+                    <button className="btn btn-ghost btn-sm" onClick={() => previewCompositionSource(candidate.id)}>{t("task.previewCompositionSource")}</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => downloadCompositionSource(candidate.id)}>{t("task.downloadCompositionSource")}</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => runAction(`replay:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/replay`); await fetchData(); })}>{t("task.replayCompositionSource")}</button>
+                  </> : <>
+                    <p className="text-secondary text-sm">{t("task.compositionSourceUnavailable")}</p>
+                    <button className="btn btn-ghost btn-sm" onClick={() => runAction(`reconstruct:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/reconstruct`); await fetchData(); })}>{t("task.reconstructCompositionSource")}</button>
+                  </>}
                 </>}
                 {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
                   <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>{t("task.approve")}</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(String(candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button>
+                  {candidate.kind === "clip" || !task.voiceover_review_enabled ? <button className="btn btn-ghost btn-sm" onClick={() => openFeedback(String(candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(candidate.id, suggestion))}>{candidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button> : null}
                 </>}
               </div>
             </article>
@@ -525,12 +549,13 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
         </section>
       )}
 
-      {sourcePreview && <section className="card mb-6" aria-label="Composition source preview"><button className="btn btn-ghost btn-sm" onClick={() => setSourcePreview(null)}>Close preview</button><iframe title="Composition source preview" src={sourcePreview} sandbox="allow-same-origin" style={{ width: "100%", height: 560, border: 0, marginTop: 12 }} /></section>}
+      {sourcePreview && <section className="card mb-6" aria-label={t("task.compositionSourcePreview")}><button className="btn btn-ghost btn-sm" onClick={() => setSourcePreview(null)}>{t("task.closePreview")}</button><iframe title={t("task.compositionSourcePreview")} srcDoc={sourcePreview} sandbox="allow-same-origin" style={{ width: "100%", height: 560, border: 0, marginTop: 12 }} /></section>}
       {editingBlueprint && (
         <div className="card mb-6 media-keyframe-review">
           <h3 className="mb-4">{t("task.editingBlueprint")}</h3>
           <p className="text-secondary text-sm mb-4">{t("task.editingBlueprintDesc")}</p>
-          <pre style={{ whiteSpace: "pre-wrap", color: "var(--text-secondary)", background: "var(--bg)", padding: 16, borderRadius: "var(--radius)" }}>{JSON.stringify(editingBlueprint.entries, null, 2)}</pre>
+          {task.status === "composition_review" && task.voiceover_review_enabled ? <><textarea className="textarea" value={editingBlueprintDraft} onChange={event => setEditingBlueprintDraft(event.target.value)} aria-label={t("task.editingBlueprint")} /><button className="btn btn-primary btn-sm mt-4" onClick={() => void recomposeBlueprint()}>{t("task.renderBlueprint")}</button></> : <pre style={{ whiteSpace: "pre-wrap", color: "var(--text-secondary)", background: "var(--bg)", padding: 16, borderRadius: "var(--radius)" }}>{JSON.stringify(editingBlueprint.entries, null, 2)}</pre>}
+          {task.status === "editing_blueprint_review" && <button className="btn btn-primary btn-sm mt-4" onClick={() => void runAction("approve-blueprint", async () => { await api.post(`/tasks/${id}/editing-blueprint/approve`); await fetchData(); })}>{t("task.approveBlueprint")}</button>}
         </div>
       )}
 
@@ -635,21 +660,6 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
               </div>
               <button type="button" className="keyframe-nav" aria-label={t("task.nextKeyframe")} onClick={() => moveViewer(1)}>›</button>
               <aside className="keyframe-viewer-actions"><p>{t("task.keyframeLocation", { shot: Number(images[viewerIndex].generation_context?.shot_index || 0) + 1, segment: Number(images[viewerIndex].generation_context?.segment_index || 0) + 1, role: t(`task.keyframeRole${images[viewerIndex].generation_context?.keyframe_role === "end" ? "End" : "Start"}`) })}</p><button className="btn btn-primary" onClick={() => reviewImage(images[viewerIndex].id, "approve")}>{t("task.approve")}</button><button className="btn btn-ghost" onClick={() => openFeedback(t("task.regen"), suggestion => regenerateImage(images[viewerIndex].id, suggestion))}>{t("task.regen")}</button></aside>
-            </div>
-          </section>
-        </div>
-      )}
-      {activeVideoViewerCandidate?.access_url && videoViewerIndex !== null && (
-        <div className="keyframe-viewer-backdrop" role="presentation">
-          <section className="video-viewer" role="dialog" aria-modal="true" aria-label={t("task.videoViewer")}>
-            <header><span>{videoViewerIndex + 1} / {videoViewerCandidates.length}</span><button type="button" className="btn btn-ghost btn-sm" aria-label={t("task.closeViewer")} onClick={() => { setVideoViewerIndex(null); setVideoViewerIds(null); }}>×</button></header>
-            <div className="video-viewer-body">
-              <button type="button" className="keyframe-nav" aria-label={t("task.previousShotSegment")} onClick={() => setVideoViewerIndex(index => index === null ? null : (index - 1 + videoViewerCandidates.length) % videoViewerCandidates.length)}>‹</button>
-              <video key={activeVideoViewerCandidate.id} ref={videoViewerRef} src={activeVideoViewerCandidate.access_url} controls muted autoPlay playsInline />
-              <button type="button" className="keyframe-nav" aria-label={t("task.nextShotSegment")} onClick={() => setVideoViewerIndex(index => index === null ? null : (index + 1) % videoViewerCandidates.length)}>›</button>
-              <aside className="keyframe-viewer-actions">
-                {activeVideoViewerCandidate.status === "pending_review" && ((task.status === "video_review" && activeVideoViewerCandidate.kind === "clip") || (task.status === "composition_review" && activeVideoViewerCandidate.kind === "composition")) && <><button className="btn btn-primary" onClick={() => reviewVideoCandidate(activeVideoViewerCandidate.id, "approve")}>{t("task.approve")}</button><button className="btn btn-ghost" onClick={() => openFeedback(String(activeVideoViewerCandidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")), suggestion => regenerateVideoCandidate(activeVideoViewerCandidate.id, suggestion))}>{activeVideoViewerCandidate.kind === "clip" ? t("task.regenerateClip") : t("task.recompose")}</button></>}
-              </aside>
             </div>
           </section>
         </div>

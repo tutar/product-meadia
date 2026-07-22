@@ -41,7 +41,9 @@ def test_personify_graph_structure():
     assert "wait_character_review" in nodes
     assert "generate_script" in nodes
     assert "wait_script_review" in nodes
-    assert "generate_tts_and_lipsync" in nodes
+    assert "generate_voiceover" in nodes
+    assert "wait_voice_review" in nodes
+    assert "generate_lipsync" in nodes
     assert "composite" in nodes
 
 

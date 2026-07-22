@@ -21,11 +21,11 @@ The workflow is designed for products in any category; it is not limited to perf
 React + Vite  ->  FastAPI  ->  PostgreSQL
                      |
                      +---- Redis -> Celery worker / beat
-                     +---- LiteLLM and media-generation providers
+                     +---- LiteLLM Python SDK -> user-configured model services
                      +---- S3-compatible object storage
 ```
 
-PostgreSQL, Redis, LiteLLM, and an S3-compatible object store are deployment prerequisites. The repository does not bundle those infrastructure services. RustFS is one possible S3-compatible implementation, not a hard requirement.
+PostgreSQL, Redis, and an S3-compatible object store are deployment prerequisites. The repository does not bundle those infrastructure services. Video Tasks call user-configured model services directly through the LiteLLM Python SDK; this model-selection flow does not require a LiteLLM Proxy. RustFS is one possible S3-compatible implementation, not a hard requirement.
 
 Generated images, audio, and video should be persisted in private object storage. Application records keep durable object identifiers; clients receive short-lived, read-only presigned URLs when media needs to be viewed or downloaded.
 
@@ -36,10 +36,9 @@ Generated images, audio, and video should be persisted in private object storage
 - HyperFrames CLI (`npm install -g hyperframes`) for final video rendering
 - PostgreSQL
 - Redis
-- LiteLLM (or another compatible model gateway)
 - An S3-compatible object storage service
 
-You must also provide credentials and endpoints for the AI/media providers enabled in your environment. Some generation stages are provider-specific and may require additional services.
+Each user maintains model endpoints and credentials in **Preferences → Model configurations**, rather than deployment environment variables. A private OpenAI-compatible endpoint may need no credential; cloud providers normally use the user's BYOK.
 
 ## Quick start
 
@@ -49,7 +48,7 @@ You must also provide credentials and endpoints for the AI/media providers enabl
 
    ```bash
    cp .env.example .env
-   # Edit .env: database, Redis, model gateway, provider, and storage settings
+   # Edit .env: database, Redis, and object-storage settings
    ```
 
 3. Start the API:
@@ -70,7 +69,13 @@ You must also provide credentials and endpoints for the AI/media providers enabl
 
    Open <http://localhost:5173>.
 
-5. Start the local Celery worker from the `perfume-video` conda environment:
+5. After signing in, open **Preferences → Model configurations**:
+
+   - Create a configuration from a built-in template, or choose **Configure private model** and enter an OpenAI-compatible endpoint, model ID, and supported stages.
+   - Enter a BYOK when the model service requires one; leave it empty for an unauthenticated private endpoint.
+   - Verify the configuration and select defaults for the required stages. A service with no safe probe establishes availability on its first real invocation.
+
+6. Start the local Celery worker from the `perfume-video` conda environment:
 
    ```bash
    ./start-worker.sh
@@ -92,7 +97,9 @@ npm install -g hyperframes
 
 ## Configuration
 
-`.env.example` documents the available settings. At minimum, configure the PostgreSQL URL, Redis broker URL, LiteLLM endpoint/key, provider credentials, and the endpoint and credentials required by your S3-compatible storage integration. The sample currently includes a RustFS endpoint as a development example; adapt it for your chosen provider. Keep secrets out of Git and never commit `.env`.
+`.env.example` documents deployment-level settings. At minimum, configure the PostgreSQL URL, Redis broker URL, and the endpoint and credentials required by your S3-compatible storage integration. Model endpoints and BYOKs belong to user-owned model configurations; do not put them in `.env` or commit them to Git. The sample currently includes a RustFS endpoint as a development example; adapt it for your chosen provider.
+
+When the browser reads a Media Access URL directly from object storage, configure that bucket's CORS policy to allow `GET` and `HEAD` from the frontend origin. For local development this is `http://localhost:5173`; production deployments must use their own HTTPS frontend origin. Do not use a wildcard origin for private media.
 
 ## Development and tests
 

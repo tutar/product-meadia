@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlalchemy import case, delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,6 +18,7 @@ from src.models.shot_plan import ShotPlan
 from src.models.editing_blueprint import EditingBlueprint
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
+from src.models.voiceover_candidate import VoiceoverCandidate
 from src.models.review_feedback import ReviewFeedback
 from src.models.viral_analysis import ViralAnalysis
 from src.models.media_asset import MediaAsset
@@ -26,9 +27,9 @@ from src.models.composition_source import CompositionSourceSnapshot
 from src.models.model_configuration import StageModelSelection
 from src.schemas.task import (
     TaskCreate, TaskResponse, ScriptResponse, ScriptUpdate, CreativeBriefResponse, CreativeBriefUpdate,
-    ShotPlanResponse, ShotPlanUpdate, EditingBlueprintResponse,
-    ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VideoCandidateResponse, ViralAnalysisResponse,
-    GenerationRecordResponse, GenerationRecordExportRequest, CompositionSourceResponse,
+    ShotPlanResponse, ShotPlanUpdate, EditingBlueprintResponse, EditingBlueprintUpdate, ReviewRewindRequest,
+    ImageResponse, ImageReview, CandidateReview, RegenerateRequest, VoiceoverReview, VideoCandidateResponse, ViralAnalysisResponse,
+    GenerationRecordResponse, GenerationRecordExportRequest, CompositionSourceResponse, VoiceoverCandidateResponse,
     StageModelSelectionResponse, StageModelSelectionUpdate,
 )
 from src.auth.deps import get_current_user
@@ -43,7 +44,7 @@ from src.services.stage_model_selections import ModelSelectionUnavailableError, 
 from src.services.stage_model_selections import replace_stage_model_selection
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-ACTIVE_TASK_STATUSES = ("pending", "planning", "creative_brief_review", "shot_plan_review", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "compositing", "composition_review", "cancellation_requested")
+ACTIVE_TASK_STATUSES = ("pending", "planning", "creative_brief_review", "shot_plan_review", "scripting", "script_review", "imaging", "image_review", "character_review", "video_gen", "video_review", "voice_review", "editing_blueprint_review", "compositing", "composition_review", "cancellation_requested")
 TERMINAL_TASK_STATUSES = {"done", "failed", "cancelled"}
 
 
@@ -183,6 +184,7 @@ async def create_task(
         type=body.type,
         image_count=body.image_count,
         status="pending",
+        voiceover_review_enabled=True,
     )
     db.add(task)
     await db.flush()
@@ -359,7 +361,13 @@ async def download_composition_source(
     media: MediaService = Depends(get_media_service),
 ):
     snapshot = await _owned_composition_source(db, user, task_id, candidate_id)
-    return RedirectResponse(await media.access_url(snapshot.asset_id, user.id), status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    asset = await media.get_owned_asset(snapshot.asset_id, user.id)
+    html = await media.storage.download(asset.bucket, asset.object_key)
+    return Response(
+        content=html,
+        media_type=asset.content_type or "text/html; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="composition-source.html"'},
+    )
 
 
 @router.get("/{task_id}/video-candidates/{candidate_id}/composition-source/preview", response_class=HTMLResponse)
@@ -724,7 +732,20 @@ async def review_character(
 async def list_video_candidates(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service)):
     await owned_task(db, user, task_id)
     candidates = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id).order_by(VideoCandidate.kind, VideoCandidate.sort_order, VideoCandidate.version))).all()
-    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "kind": candidate.kind, "sort_order": candidate.sort_order, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current, "generation_context": candidate.generation_context or {}} for candidate in candidates]
+    source_candidate_ids = set((await db.scalars(select(CompositionSourceSnapshot.candidate_id).where(
+        CompositionSourceSnapshot.task_id == task_id,
+        CompositionSourceSnapshot.candidate_id.is_not(None),
+    ))).all())
+    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "kind": candidate.kind, "sort_order": candidate.sort_order, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current, "has_composition_source": candidate.id in source_candidate_ids, "generation_context": candidate.generation_context or {}} for candidate in candidates]
+
+
+@router.get("/{task_id}/voiceover-candidates", response_model=list[VoiceoverCandidateResponse])
+async def list_voiceover_candidates(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service)):
+    await owned_task(db, user, task_id)
+    candidates = (await db.scalars(select(VoiceoverCandidate).where(
+        VoiceoverCandidate.task_id == task_id,
+    ).order_by(VoiceoverCandidate.version))).all()
+    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "narration_text": candidate.narration_text, "duration_seconds": candidate.duration_seconds, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current, "generation_context": candidate.generation_context or {}} for candidate in candidates]
 
 
 @router.get("/{task_id}/editing-blueprint", response_model=EditingBlueprintResponse)
@@ -734,6 +755,204 @@ async def get_editing_blueprint(task_id: UUID, db: AsyncSession = Depends(get_as
     if not blueprint:
         raise HTTPException(status_code=404, detail="Editing Blueprint not found")
     return blueprint
+
+
+def _blueprint_duration(entries: list[dict]) -> float:
+    return sum(float(entry.get("duration_seconds", 0)) for entry in entries)
+
+
+async def _render_saved_blueprint(
+    db: AsyncSession, media: MediaService, task: VideoTask, blueprint: EditingBlueprint,
+) -> VideoCandidate:
+    """Render the user-saved deterministic blueprint with retained inputs only."""
+    clips = (await db.scalars(select(VideoCandidate).where(
+        VideoCandidate.task_id == task.id, VideoCandidate.kind == "clip",
+        VideoCandidate.is_current.is_(True), VideoCandidate.asset_id.is_not(None),
+    ).order_by(VideoCandidate.sort_order))).all()
+    voice = await db.scalar(select(VoiceoverCandidate).where(
+        VoiceoverCandidate.task_id == task.id, VoiceoverCandidate.is_current.is_(True),
+        VoiceoverCandidate.status == "approved", VoiceoverCandidate.asset_id.is_not(None),
+    ))
+    entries = blueprint.entries or []
+    if not clips or not voice or len(entries) != len(clips):
+        raise HTTPException(status_code=422, detail="Editing Blueprint does not match approved retained inputs")
+    for index, entry in enumerate(entries):
+        if int(entry.get("clip_index", index)) != index or float(entry.get("duration_seconds", 0)) <= 0:
+            raise HTTPException(status_code=422, detail="Editing Blueprint contains invalid clip timing")
+    duration = _blueprint_duration(entries)
+    videos = "".join(
+        f'<video id="clip-{index}" class="clip" src="asset://{clip.asset_id}" data-start="{entry.get("start_seconds", 0)}" data-duration="{entry["duration_seconds"]}" data-track-index="0" muted playsinline preload="auto"></video>'
+        for index, (clip, entry) in enumerate(zip(clips, entries))
+    )
+    canonical_html = (
+        f'<div data-composition-id="task-{task.id}" data-start="0" data-duration="{duration}" data-width="1152" data-height="768">'
+        f'<audio id="voiceover" src="asset://{voice.asset_id}" data-start="0" data-track-index="10"></audio>{videos}</div>'
+    )
+    source_asset = await media.create_asset(
+        owner_user_id=task.user_id, category="composition_source", data=canonical_html.encode(),
+        content_type="text/html; charset=utf-8", filename=f"{task.id}-composition-source.html",
+        task_id=task.id, source_provider="editing-blueprint",
+        idempotency_key=f"task:{task.id}:editing-blueprint:{blueprint.updated_at.isoformat()}",
+    )
+    path = await render_hyperframes(await materialize_html(canonical_html, media, task.user_id))
+    prior = (await db.scalars(select(VideoCandidate).where(
+        VideoCandidate.task_id == task.id, VideoCandidate.kind == "composition",
+    ))).all()
+    next_version = max((candidate.version for candidate in prior), default=0) + 1
+    final_asset = await media.create_asset(
+        owner_user_id=task.user_id, category="final_video", data=Path(path).read_bytes(),
+        content_type="video/mp4", filename=f"{task.id}-final-blueprint.mp4", task_id=task.id,
+        source_provider="hyperframes", idempotency_key=f"task:{task.id}:final-video:blueprint:{next_version}",
+    )
+    for candidate in prior:
+        if candidate.is_current:
+            candidate.is_current = False
+    candidate = VideoCandidate(task_id=task.id, asset_id=final_asset.id, kind="composition", sort_order=0,
+                               version=next_version, status="pending_review")
+    db.add(candidate)
+    await db.flush()
+    db.add(CompositionSourceSnapshot(
+        task_id=task.id, candidate_id=candidate.id, asset_id=source_asset.id, source_kind="captured",
+        canonical_html_checksum=html_checksum(canonical_html),
+        input_asset_ids=[str(clip.asset_id) for clip in clips] + [str(voice.asset_id)],
+        render_spec={"fps": 30, "width": 1152, "height": 768, "format": "mp4"},
+        provenance={"editing_blueprint": True},
+    ))
+    task.result_video_asset_id = final_asset.id
+    task.result_video_url = None
+    task.status = "composition_review"
+    return candidate
+
+
+@router.put("/{task_id}/editing-blueprint/recompose")
+async def save_and_recompose_editing_blueprint(
+    task_id: UUID, body: EditingBlueprintUpdate, db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service),
+):
+    task = await owned_task(db, user, task_id)
+    if not task.voiceover_review_enabled or task.status != "composition_review":
+        raise HTTPException(status_code=409, detail="Editing Blueprint recomposition is only available during new-flow composition review")
+    blueprint = await db.scalar(select(EditingBlueprint).where(EditingBlueprint.task_id == task_id))
+    if not blueprint:
+        raise HTTPException(status_code=404, detail="Editing Blueprint not found")
+    if body.entries == blueprint.entries:
+        raise HTTPException(status_code=422, detail="Save a changed Editing Blueprint before re-rendering")
+    duration_changed = _blueprint_duration(body.entries) != _blueprint_duration(blueprint.entries)
+    blueprint.entries = body.entries
+    if duration_changed:
+        blueprint.status = "pending_review"
+        task.status = "editing_blueprint_review"
+        await db.commit()
+        return {"status": "editing_blueprint_review"}
+    candidate = await _render_saved_blueprint(db, media, task, blueprint)
+    await db.commit()
+    return candidate
+
+
+@router.post("/{task_id}/editing-blueprint/approve", response_model=VideoCandidateResponse)
+async def approve_duration_changed_editing_blueprint(
+    task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user),
+    media: MediaService = Depends(get_media_service),
+):
+    task = await owned_task(db, user, task_id)
+    blueprint = await db.scalar(select(EditingBlueprint).where(EditingBlueprint.task_id == task_id))
+    if task.status != "editing_blueprint_review" or not blueprint or blueprint.status != "pending_review":
+        raise HTTPException(status_code=409, detail="No duration-changing Editing Blueprint awaits approval")
+    blueprint.status = "approved"
+    candidate = await _render_saved_blueprint(db, media, task, blueprint)
+    await db.commit()
+    return candidate
+
+
+@router.post("/{task_id}/composition-review/rewind", status_code=status.HTTP_202_ACCEPTED)
+async def rewind_composition_review(
+    task_id: UUID, body: ReviewRewindRequest, db: AsyncSession = Depends(get_async_session),
+    user: User = Depends(get_current_user),
+):
+    """Return explicitly to voice or selected Clip Segment review without invoking a model."""
+    task = await owned_task(db, user, task_id)
+    if not task.voiceover_review_enabled or task.status != "composition_review":
+        raise HTTPException(status_code=409, detail="Composition review rewind is unavailable for this task")
+    composition = await db.scalar(select(VideoCandidate).where(
+        VideoCandidate.task_id == task_id, VideoCandidate.kind == "composition", VideoCandidate.is_current.is_(True),
+    ))
+    if composition:
+        composition.status = "rejected"
+        composition.is_current = False
+    if body.target == "voiceover":
+        voice = await db.scalar(select(VoiceoverCandidate).where(
+            VoiceoverCandidate.task_id == task_id, VoiceoverCandidate.is_current.is_(True),
+        ))
+        if not voice:
+            raise HTTPException(status_code=409, detail="No current Voiceover Candidate")
+        voice.status = "pending_review"
+        task.status = "voice_review"
+    elif body.target == "clips":
+        if not body.clip_candidate_ids:
+            raise HTTPException(status_code=422, detail="Select at least one Clip Segment")
+        clips = (await db.scalars(select(VideoCandidate).where(
+            VideoCandidate.task_id == task_id, VideoCandidate.id.in_(body.clip_candidate_ids),
+            VideoCandidate.kind == "clip", VideoCandidate.is_current.is_(True),
+        ))).all()
+        if len(clips) != len(set(body.clip_candidate_ids)):
+            raise HTTPException(status_code=422, detail="Selected Clip Segments are not current task candidates")
+        for clip in clips:
+            clip.status = "pending_review"
+        task.status = "video_review"
+    else:
+        raise HTTPException(status_code=422, detail="Unsupported review rewind target")
+    await db.commit()
+    return {"status": "queued"}
+
+
+@router.put("/{task_id}/voiceover-candidates/{candidate_id}", status_code=status.HTTP_202_ACCEPTED)
+async def review_voiceover_candidate(
+    task_id: UUID, candidate_id: UUID, body: VoiceoverReview,
+    db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user),
+):
+    """Approve a Voiceover Candidate or create a replacement through TTS only."""
+    task = await owned_task(db, user, task_id)
+    candidate = await db.scalar(select(VoiceoverCandidate).where(
+        VoiceoverCandidate.id == candidate_id, VoiceoverCandidate.task_id == task_id,
+        VoiceoverCandidate.is_current.is_(True),
+    ))
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Current voiceover candidate not found")
+    if body.action == "approve":
+        candidate.status = "approved"
+        task.status = "video_gen" if task.type == "personify" else "compositing"
+        await db.commit()
+        from src.tasks.video_tasks import run_video_task
+        run_video_task.delay(str(task_id))
+        return {"status": "queued"}
+    if body.action != "regenerate":
+        raise HTTPException(status_code=422, detail="Unsupported voiceover review action")
+    changed_text = (body.narration_text or "").strip()
+    if changed_text == candidate.narration_text:
+        changed_text = ""
+    if not changed_text and body.model_configuration_id is None:
+        raise HTTPException(status_code=422, detail="Voiceover replacement requires changed narration text or a voice model configuration")
+    selection = await db.scalar(select(StageModelSelection).where(
+        StageModelSelection.task_id == task.id, StageModelSelection.stage == "voice_generation",
+    ))
+    if selection is None:
+        raise HTTPException(status_code=409, detail="Voiceover regeneration has no model selection")
+    await replace_stage_model_selection(
+        db, task, user.id, "voice_generation", body.model_configuration_id or selection.model_configuration_id,
+        explicit_regeneration=True,
+    )
+    if changed_text:
+        script = await db.scalar(select(Script).where(Script.task_id == task_id))
+        if script:
+            script.voiceover_text = changed_text
+    candidate.status = "rejected"
+    candidate.is_current = False
+    record_feedback(db, task, "voiceover", candidate.id, body.feedback or "User requested a replacement voiceover.")
+    task.status = "video_gen"
+    await db.commit()
+    from src.tasks.video_tasks import run_video_task
+    run_video_task.delay(str(task_id))
+    return {"status": "queued"}
 
 
 @router.put("/{task_id}/video-candidates/{candidate_id}")
@@ -768,12 +987,21 @@ async def regenerate_video_candidate(task_id: UUID, candidate_id: UUID, body: Re
     candidate = await db.scalar(select(VideoCandidate).where(VideoCandidate.id == candidate_id, VideoCandidate.task_id == task_id, VideoCandidate.is_current.is_(True)))
     if not candidate:
         raise HTTPException(status_code=404, detail="Current video candidate not found")
-    if body.model_configuration_id is not None:
-        if candidate.kind != "clip":
-            raise HTTPException(status_code=422, detail="Composition regeneration cannot replace a model selection")
+    if candidate.kind == "clip":
+        # A User-requested regeneration deliberately begins a new selection
+        # version.  Omitting a replacement keeps the same configuration
+        # reference, but resolves its latest verified revision at stage start.
+        selection = await db.scalar(select(StageModelSelection).where(
+            StageModelSelection.task_id == task.id, StageModelSelection.stage == "clip_video",
+        ))
+        if selection is None:
+            raise HTTPException(status_code=409, detail="Clip regeneration has no model selection")
         await replace_stage_model_selection(
-            db, task, user.id, "clip_video", body.model_configuration_id, explicit_regeneration=True,
+            db, task, user.id, "clip_video", body.model_configuration_id or selection.model_configuration_id,
+            explicit_regeneration=True,
         )
+    elif body.model_configuration_id is not None:
+        raise HTTPException(status_code=422, detail="Composition regeneration cannot replace a model selection")
     # Recomposition and clip regeneration are both a rejected review decision.
     # Recording the feedback before dispatching keeps the retry fully auditable.
     record_feedback(db, task, "composition" if candidate.kind == "composition" else "video_clip", candidate.id, validated_feedback(body.feedback))

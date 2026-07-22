@@ -1,6 +1,5 @@
 import json
 import math
-from openai import OpenAIError
 from langgraph.graph import StateGraph, END
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
@@ -44,26 +43,8 @@ def review_guidance(state: VideoAgentState, target_type: str, target_id: str | N
 
 
 async def composition_options(state: VideoAgentState) -> dict:
-    defaults = {"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}
-    guidance = review_guidance(state, "composition")
-    if not guidance:
-        return defaults
-    try:
-        result = await llm_chat(
-            "scriptwriter",
-            "Return only JSON with clip_duration (3-7), subtitle_offset (6-18), and subtitle_size (24-42).",
-            "Adjust this video composition using the reviewer guidance:" + guidance,
-            temperature=0.2,
-            task_id=state.get("task_id"), model_stage="creative_planning",
-        )
-        proposed = json.loads(result)
-        return {
-            "clip_duration": min(7, max(3, int(proposed.get("clip_duration", 5)))),
-            "subtitle_offset": min(18, max(6, int(proposed.get("subtitle_offset", 10)))),
-            "subtitle_size": min(42, max(24, int(proposed.get("subtitle_size", 32)))),
-        }
-    except (OpenAIError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
-        return defaults
+    """Composition is deterministic; review feedback never triggers a model call."""
+    return {"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}
 
 
 def composition_feedback_key(state: VideoAgentState) -> str:
@@ -72,6 +53,12 @@ def composition_feedback_key(state: VideoAgentState) -> str:
         if item.get("target_type") == "composition" and item.get("id")
     ]
     return "feedback:" + ":".join(feedback_ids) if feedback_ids else "initial"
+
+
+def voiceover_generation_key(state: VideoAgentState) -> str:
+    feedback_ids = [item["id"] for item in state.get("review_feedback", [])
+                    if item.get("target_type") == "voiceover" and item.get("id")]
+    return "voiceover:" + ":".join(feedback_ids) if feedback_ids else "initial"
 
 
 def clip_segments_for_shot_plan(
@@ -247,7 +234,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         return {"video_clips": clips, "video_clips_reused": False}
 
     async def generate_voiceover(state: VideoAgentState) -> dict:
-        if state.get("tts_audio_url") and not review_guidance(state, "composition"):
+        if state.get("tts_audio_url") and not review_guidance(state, "voiceover"):
             return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"]}
         voiceover = state.get("voiceover_text") or state.get("edited_script_content") or state["script_content"]
         result = await generate_tts(voiceover, task_id=state.get("task_id"))
@@ -255,8 +242,13 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             "tts_audio_url": result["audio_url"],
             "tts_words": result["words"],
             "tts_duration_seconds": result["tts_duration_seconds"],
-            "tts_generation_key": composition_feedback_key(state),
+            "tts_generation_key": voiceover_generation_key(state),
         }
+
+    async def wait_voice_review(state: VideoAgentState) -> dict:
+        if state.get("voiceover_approved"):
+            return {}
+        return {"__status": "voice_review"}
 
     async def composite_video(state: VideoAgentState) -> dict:
         clips = state.get("video_clips", [])
@@ -335,6 +327,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_node("wait_image_review", wait_image_review)
     graph.add_node("generate_video_clips", tracked_node("generate_video_clips", generate_video_clips))
     graph.add_node("generate_voiceover", tracked_node("generate_voiceover", generate_voiceover))
+    graph.add_node("wait_voice_review", wait_voice_review)
     graph.add_node("composite_video", tracked_node("composite_video", composite_video))
     graph.add_node("render_composition", tracked_node("render_composition", render_composition))
 
@@ -348,7 +341,8 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_edge("generate_images", "wait_image_review")
     graph.add_edge("wait_image_review", "generate_video_clips")
     graph.add_edge("generate_video_clips", "generate_voiceover")
-    graph.add_edge("generate_voiceover", "composite_video")
+    graph.add_edge("generate_voiceover", "wait_voice_review")
+    graph.add_edge("wait_voice_review", "composite_video")
     graph.add_edge("composite_video", "render_composition")
     graph.add_edge("render_composition", END)
 

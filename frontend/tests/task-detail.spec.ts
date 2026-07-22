@@ -126,9 +126,13 @@ test("task detail exposes a revoked stage as waiting for explicit replacement", 
   await page.route("**/api/v1/tasks/task-replacement/script", route => route.fulfill({ json: { id: "script", task_id: "task-replacement", content: "Script", image_prompts: [], voiceover_text: "Script", status: "pending_review" } }));
   await page.route("**/api/v1/tasks/task-replacement/images", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/tasks/task-replacement/video-candidates", route => route.fulfill({ json: [] }));
-  await page.route("**/api/v1/tasks/task-replacement/stage-model-selections", route => route.fulfill({ json: [{ stage: "clip_video", selection_version: 2, availability_status: "replacement_required", resolution_snapshot: { provider: "google", model_id: "veo-3" } }] }));
+  await page.route("**/api/v1/tasks/task-replacement/stage-model-selections", route => route.fulfill({ json: [
+    { stage: "scriptwriting", selection_version: 1, availability_status: "available", resolution_snapshot: { state: "pending_resolution" } },
+    { stage: "clip_video", selection_version: 2, availability_status: "replacement_required", resolution_snapshot: { provider: "google", model_id: "veo-3" } },
+  ] }));
   await page.goto("/tasks/task-replacement");
-  await expect(page.getByRole("region", { name: "Frozen model selections" })).toContainText("clip_video: google / veo-3 · Selection v2 · replacement_required");
+  await expect(page.getByRole("region", { name: "Stage model selections" })).toContainText("clip_video: google / veo-3 · Selection v2 · replacement_required");
+  await expect(page.getByRole("region", { name: "Stage model selections" })).toContainText("scriptwriting: Pending resolution · Selection v1 · available");
 });
 
 test("promo workspace reviews an ordered Shot Plan before generating keyframes", async ({ page }) => {
@@ -228,6 +232,7 @@ test("execution log localizes a known English summary for Chinese", async ({ pag
   const log = page.getByRole("region", { name: "执行日志" });
   await log.getByRole("button", { name: "第 1 次执行" }).click();
   await log.getByRole("button", { name: "撰写脚本" }).click();
+  await page.getByRole("button", { name: "关闭生成资料" }).click();
   await expect(log.getByRole("button", { name: "策划" })).toBeVisible();
   await log.getByRole("button", { name: "策划" }).click();
   await expect(log.getByText("生成镜头计划", { exact: true })).toBeVisible();
@@ -289,31 +294,6 @@ test("video clip review presents four clips as a desktop contact sheet", async (
   expect(positions.every(position => position.width > 200)).toBe(true);
 });
 
-test("shot segment viewer is muted, navigable, and exposes review actions", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
-  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
-  await page.route("**/api/v1/tasks/task-video-viewer", route => route.fulfill({ json: {
-    id: "task-video-viewer", status: "video_review", type: "promo", image_count: 2, progress_log: [],
-  } }));
-  await page.route("**/api/v1/tasks/task-video-viewer/images", route => route.fulfill({ json: [] }));
-  await page.route("**/api/v1/tasks/task-video-viewer/video-candidates", route => route.fulfill({ json: [1, 2].map(index => ({
-    id: `clip-${index}`, kind: "clip", is_current: true, status: "pending_review", access_url: `https://example.test/clip-${index}.mp4`,
-  })) }));
-
-  await page.goto("/tasks/task-video-viewer");
-  await page.getByRole("button", { name: "Open video clip 1 in viewer" }).click();
-
-  const viewer = page.getByRole("dialog", { name: "Video viewer" });
-  const video = viewer.locator("video");
-  await expect(video).toHaveAttribute("controls", "");
-  await expect(video).toHaveJSProperty("muted", true);
-  await expect(viewer.getByRole("button", { name: "Approve" })).toBeVisible();
-  await page.keyboard.press("ArrowRight");
-  await expect(viewer.getByText("2 / 2", { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(viewer).toHaveCount(0);
-});
-
 test("composition review separates approved shot segments from final composition review", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
   await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
@@ -324,7 +304,7 @@ test("composition review separates approved shot segments from final composition
   await page.route("**/api/v1/tasks/task-composition-review/images", route => route.fulfill({ json: [] }));
   await page.route("**/api/v1/tasks/task-composition-review/video-candidates", route => route.fulfill({ json: [
     { id: "clip-1", kind: "clip", is_current: true, status: "approved", access_url: "https://example.test/clip-1.mp4" },
-    { id: "composition-1", kind: "composition", is_current: true, status: "pending_review", access_url: "https://example.test/composition-1.mp4" },
+    { id: "composition-1", kind: "composition", is_current: true, status: "pending_review", has_composition_source: true, access_url: "https://example.test/composition-1.mp4" },
   ] }));
 
   await page.goto("/tasks/task-composition-review");
@@ -332,7 +312,92 @@ test("composition review separates approved shot segments from final composition
   const composition = page.getByRole("region", { name: "Final composition review" });
   await expect(approvedSegments.getByRole("button", { name: "Approve" })).toHaveCount(0);
   await expect(composition.getByRole("button", { name: "Approve" })).toHaveCount(1);
+  await expect(composition.locator(".video-preview-expand")).toHaveCount(0);
+
+  const card = composition.locator(".video-review-card");
+  const cardBox = await card.boundingBox();
+  expect(cardBox).not.toBeNull();
+  for (const control of [
+    composition.getByRole("button", { name: "Preview source" }),
+    composition.getByRole("button", { name: "Download HTML" }),
+    composition.getByRole("button", { name: "Replay source" }),
+    composition.getByRole("button", { name: "Approve" }),
+    composition.getByRole("button", { name: "Recompose" }),
+  ]) {
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+  }
   expect((await approvedSegments.boundingBox())!.y).toBeLessThan((await composition.boundingBox())!.y);
+});
+
+test("composition source controls localize and download through the authorized API", async ({ page }) => {
+  let authorization = "";
+  let previewAuthorization = "";
+  await page.addInitScript(() => {
+    localStorage.setItem("access_token", "test");
+    localStorage.setItem("i18nextLng", "zh");
+  });
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh", route => route.fulfill({ json: {
+    id: "task-composition-review-zh", status: "composition_review", type: "promo", image_count: 1, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/editing-blueprint", route => route.fulfill({ json: { entries: [] } }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/video-candidates", route => route.fulfill({ json: [
+    { id: "composition-zh", kind: "composition", is_current: true, status: "pending_review", has_composition_source: true, access_url: "https://example.test/composition.mp4" },
+  ] }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/video-candidates/composition-zh/composition-source/download", route => {
+    authorization = route.request().headers()["authorization"] || "";
+    return route.fulfill({
+      body: "<div>composition source</div>",
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-disposition": 'attachment; filename="composition-source.html"',
+      },
+    });
+  });
+  await page.route("**/api/v1/tasks/task-composition-review-zh/video-candidates/composition-zh/composition-source/preview", route => {
+    previewAuthorization = route.request().headers()["authorization"] || "";
+    return route.fulfill({
+      body: "<main>composition source preview</main>",
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  });
+
+  await page.goto("/tasks/task-composition-review-zh");
+  const composition = page.getByRole("region", { name: "成片审核" });
+  await composition.getByRole("button", { name: "查看源文件" }).click();
+  await expect(page.frameLocator('iframe[title="成片源文件预览"]').getByText("composition source preview")).toBeVisible();
+  expect(previewAuthorization).toBe("Bearer test");
+  await expect(page.getByRole("button", { name: "关闭预览" })).toBeVisible();
+  const download = page.waitForEvent("download");
+  await composition.getByRole("button", { name: "下载 HTML" }).click();
+  expect((await download).suggestedFilename()).toBe("composition-source.html");
+  expect(authorization).toBe("Bearer test");
+  await expect(composition.getByRole("button", { name: "重新渲染源文件" })).toBeVisible();
+  await expect(composition.getByRole("button", { name: "重建源文件" })).toHaveCount(0);
+});
+
+test("legacy final composition exposes only source reconstruction", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-legacy-composition", route => route.fulfill({ json: {
+    id: "task-legacy-composition", status: "composition_review", type: "promo", image_count: 1, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-legacy-composition/editing-blueprint", route => route.fulfill({ json: { entries: [] } }));
+  await page.route("**/api/v1/tasks/task-legacy-composition/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-legacy-composition/video-candidates", route => route.fulfill({ json: [
+    { id: "legacy-composition", kind: "composition", is_current: true, status: "pending_review", has_composition_source: false, access_url: "https://example.test/composition.mp4" },
+  ] }));
+
+  await page.goto("/tasks/task-legacy-composition");
+  const composition = page.getByRole("region", { name: "Final composition review" });
+  await expect(composition.getByText("This final video has no retained source file.")).toBeVisible();
+  await expect(composition.getByRole("button", { name: "Reconstruct source" })).toBeVisible();
+  await expect(composition.getByRole("button", { name: "Preview source" })).toHaveCount(0);
+  await expect(composition.getByRole("button", { name: "Download HTML" })).toHaveCount(0);
+  await expect(composition.getByRole("button", { name: "Replay source" })).toHaveCount(0);
 });
 
 test("keyframe review opens a full-screen viewer with keyboard navigation", async ({ page }) => {

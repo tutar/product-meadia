@@ -58,6 +58,7 @@ class VideoAgentState(TypedDict):
     script_approved: bool
     images_approved: bool
     character_approved: bool
+    voiceover_approved: bool
     review_feedback: list[dict]
     video_feedback_by_sort_order: dict[int, str]
     messages: Annotated[list, add_messages]

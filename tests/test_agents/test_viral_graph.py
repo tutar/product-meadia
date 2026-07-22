@@ -50,7 +50,9 @@ def test_viral_graph_structure():
     assert "wait_script_review" in nodes
     assert "generate_images" in nodes
     assert "wait_image_review" in nodes
-    assert "generate_clips_and_voiceover" in nodes
+    assert "generate_video_clips" in nodes
+    assert "generate_voiceover" in nodes
+    assert "wait_voice_review" in nodes
     assert "composite" in nodes
 
 

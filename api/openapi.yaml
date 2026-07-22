@@ -55,7 +55,7 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/ModelConfiguration" }
     post:
-      summary: 创建用户拥有的 BYOK 或平台默认模型配置
+      summary: 从模板或私有 OpenAI-compatible endpoint 创建用户拥有的 BYOK 模型配置
       tags: [Model configurations]
       requestBody:
         required: true
@@ -85,7 +85,7 @@ paths:
               schema: { $ref: "#/components/schemas/ModelConfiguration" }
   /model-configurations/{configuration_id}:
     patch:
-      summary: 更新模型配置凭据或平台默认选择；更新后需重新验证
+      summary: 更新模型配置；更新后需重新验证
       tags: [Model configurations]
       parameters:
         - name: configuration_id
@@ -783,28 +783,36 @@ components:
         is_available: { type: boolean }
     ModelConfigurationCreate:
       type: object
-      required: [catalog_model_id]
       properties:
-        catalog_model_id: { type: string, format: uuid }
+        catalog_model_id: { type: string, format: uuid, nullable: true, description: 只作创建预填的只读模板来源 }
+        display_name: { type: string, minLength: 1, maxLength: 255 }
+        adapter: { type: string, minLength: 1, maxLength: 80 }
+        api_base: { type: string, format: uri, nullable: true, maxLength: 1000 }
+        model_id: { type: string, minLength: 1, maxLength: 255 }
+        capabilities: { type: array, minItems: 1, items: { type: string } }
+        constraints: { type: object, additionalProperties: true }
         credential: { type: string, writeOnly: true }
-        use_platform_default: { type: boolean, default: false }
-      oneOf:
-        - required: [credential]
-        - required: [use_platform_default]
+      anyOf:
+        - required: [catalog_model_id]
+        - required: [display_name, adapter, model_id, capabilities]
     ModelConfiguration:
       type: object
-      required: [id, catalog_model_id, provider, model_id, capabilities, constraints, uses_platform_default, verification_status]
+      required: [id, adapter, provider, model_id, display_name, capabilities, constraints, revision, uses_platform_default, verification_status, first_use_eligible]
       properties:
         id: { type: string, format: uuid }
-        catalog_model_id: { type: string, format: uuid }
+        catalog_model_id: { type: string, format: uuid, nullable: true }
+        adapter: { type: string }
+        api_base: { type: string, format: uri, nullable: true }
         provider: { type: string }
         model_id: { type: string }
         display_name: { type: string }
         capabilities: { type: array, items: { type: string } }
         constraints: { type: object, additionalProperties: true }
+        revision: { type: integer, minimum: 1 }
         uses_platform_default: { type: boolean }
         verification_status: { type: string, enum: [unverified, verified, unavailable, revoked] }
         verification_error: { type: string, nullable: true }
+        first_use_eligible: { type: boolean, description: 无安全探针的配置可在首次真实调用中确定可用性 }
         verified_at: { type: string, format: date-time, nullable: true }
         revoked_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
@@ -812,8 +820,13 @@ components:
     ModelConfigurationUpdate:
       type: object
       properties:
+        display_name: { type: string, minLength: 1, maxLength: 255 }
+        adapter: { type: string, minLength: 1, maxLength: 80 }
+        api_base: { type: string, format: uri, nullable: true, maxLength: 1000 }
+        model_id: { type: string, minLength: 1, maxLength: 255 }
+        capabilities: { type: array, minItems: 1, items: { type: string } }
+        constraints: { type: object, additionalProperties: true }
         credential: { type: string, writeOnly: true }
-        use_platform_default: { type: boolean }
     StageModelDefaultUpsert:
       type: object
       required: [model_configuration_id]

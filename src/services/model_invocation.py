@@ -18,6 +18,8 @@ from sqlalchemy.orm import selectinload
 from src.config import settings
 from src.models.model_configuration import ModelConfiguration, StageModelSelection
 from src.services.model_credentials import decrypt_credential
+from src.services.model_verification import is_selectable
+from src.services.stage_model_selections import resolve_stage_model_selection
 
 
 class ModelAvailabilityFailure(RuntimeError):
@@ -31,35 +33,45 @@ class InvocationResult:
 
 
 class LiteLLMClient:
-    async def complete(self, *, provider: str, model_id: str, credential: str, messages: list[dict], temperature: float) -> str:
+    @staticmethod
+    def _model_name(provider: str, model_id: str) -> str:
+        """Preserve an explicit provider prefix from a user configuration."""
+        return model_id if model_id.startswith(f"{provider}/") else f"{provider}/{model_id}"
+
+    async def complete(self, *, provider: str, model_id: str, credential: str | None, messages: list[dict], temperature: float, api_base: str | None = None) -> str:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
-        response = await litellm.acompletion(
-            model=f"{provider}/{model_id}", api_key=credential, messages=messages, temperature=temperature,
-        )
+        params = {"model": self._model_name(provider, model_id), "messages": messages, "temperature": temperature}
+        if credential: params["api_key"] = credential
+        if api_base: params["api_base"] = api_base
+        response = await litellm.acompletion(**params)
         return response.choices[0].message.content or ""
 
-    async def image(self, *, provider: str, model_id: str, credential: str, prompt: str, size: str, reference_image_url: str | None = None) -> str:
+    async def image(self, *, provider: str, model_id: str, credential: str | None, prompt: str, size: str, reference_image_url: str | None = None, api_base: str | None = None) -> str:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
-        params = {"model": f"{provider}/{model_id}", "api_key": credential, "prompt": prompt, "size": size}
+        params = {"model": self._model_name(provider, model_id), "prompt": prompt, "size": size}
+        if credential: params["api_key"] = credential
         if reference_image_url:
             params["image"] = [reference_image_url]
+        if api_base:
+            params["api_base"] = api_base
         response = await litellm.aimage_generation(**params)
         return response.data[0].url
 
-    async def speech(self, *, provider: str, model_id: str, credential: str, text: str, voice: str) -> bytes:
+    async def speech(self, *, provider: str, model_id: str, credential: str | None, text: str, voice: str, api_base: str | None = None) -> bytes:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
-        response = await litellm.aspeech(
-            model=f"{provider}/{model_id}", api_key=credential, input=text, voice=voice,
-        )
+        params = {"model": self._model_name(provider, model_id), "input": text, "voice": voice}
+        if credential: params["api_key"] = credential
+        if api_base: params["api_base"] = api_base
+        response = await litellm.aspeech(**params)
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as file:
             path = Path(file.name)
         try:
@@ -68,18 +80,19 @@ class LiteLLMClient:
         finally:
             path.unlink(missing_ok=True)
 
-    async def transcription(self, *, provider: str, model_id: str, credential: str, file_path: Path) -> str:
+    async def transcription(self, *, provider: str, model_id: str, credential: str | None, file_path: Path, api_base: str | None = None) -> str:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
             raise RuntimeError("LiteLLM SDK is required for model invocation") from error
         with file_path.open("rb") as audio_file:
-            response = await litellm.atranscription(
-                model=f"{provider}/{model_id}", api_key=credential, file=audio_file,
-            )
+            params = {"model": self._model_name(provider, model_id), "file": audio_file}
+            if credential: params["api_key"] = credential
+            if api_base: params["api_base"] = api_base
+            response = await litellm.atranscription(**params)
         return response.text
 
-    async def video(self, *, provider: str, model_id: str, credential: str, prompt: str, seconds: int, image_urls: list[str]) -> bytes:
+    async def video(self, *, provider: str, model_id: str, credential: str | None, prompt: str, seconds: int, image_urls: list[str], api_base: str | None = None) -> bytes:
         try:
             import litellm
         except ImportError as error:  # pragma: no cover - packaging protects deployed environments
@@ -87,7 +100,8 @@ class LiteLLMClient:
         reference_path = None
         reference_file = None
         try:
-            params = {"model": f"{provider}/{model_id}", "api_key": credential, "prompt": prompt, "seconds": str(seconds), "size": "1152x768"}
+            params = {"model": self._model_name(provider, model_id), "prompt": prompt, "seconds": str(seconds), "size": "1152x768"}
+            if credential: params["api_key"] = credential
             if image_urls:
                 import httpx
                 async with httpx.AsyncClient(timeout=60) as http:
@@ -98,6 +112,8 @@ class LiteLLMClient:
                     reference_path = Path(image_file.name)
                 reference_file = reference_path.open("rb")
                 params["input_reference"] = reference_file
+            if api_base:
+                params["api_base"] = api_base
             created = await litellm.avideo_generation(**params)
             while True:
                 status = await litellm.avideo_status(video_id=created.id)
@@ -123,19 +139,36 @@ class ModelInvocationBoundary:
         ).where(StageModelSelection.task_id == task_id, StageModelSelection.stage == stage))
         if selection is None:
             raise ModelAvailabilityFailure(f"No frozen model selection for {stage}")
+        if selection.started_at is None:
+            try:
+                selection = await resolve_stage_model_selection(db, task_id, stage)
+                await db.commit()
+            except Exception as error:
+                await db.rollback()
+                raise ModelAvailabilityFailure(f"Model selection for {stage} cannot start") from error
         if selection.availability_status != "available":
             raise ModelAvailabilityFailure(f"Frozen model selection for {stage} requires explicit replacement")
         configuration = selection.model_configuration
-        if configuration.verification_status != "verified" or configuration.revoked_at is not None:
+        if not is_selectable(configuration) or configuration.revoked_at is not None:
             raise ModelAvailabilityFailure(f"Frozen model selection for {stage} is unavailable")
         credential = (
             settings.platform_default_model_api_key
             if configuration.uses_platform_default
-            else decrypt_credential(configuration.credential_ciphertext)
+            else decrypt_credential(configuration.credential_ciphertext) if configuration.credential_ciphertext else None
         )
-        if not credential:
-            raise ModelAvailabilityFailure(f"Frozen model selection for {stage} has no credential")
-        return selection, configuration.catalog_model, credential
+        return selection, credential
+
+    @staticmethod
+    def _provider(snapshot: dict) -> str:
+        return "openai" if snapshot.get("adapter") == "openai_compatible" else snapshot.get("adapter", "openai")
+
+    @classmethod
+    def _call_parameters(cls, snapshot: dict, **kwargs) -> dict:
+        if snapshot.get("api_base"):
+            kwargs["api_base"] = snapshot["api_base"]
+        kwargs["provider"] = cls._provider(snapshot)
+        kwargs["model_id"] = snapshot["model_id"]
+        return kwargs
 
     async def _record_failure(self, db: AsyncSession, selection: StageModelSelection, configuration: ModelConfiguration) -> None:
         configuration.verification_status = "unavailable"
@@ -146,6 +179,10 @@ class ModelInvocationBoundary:
 
     async def _record_success(self, db: AsyncSession, selection: StageModelSelection) -> None:
         selection.started_at = selection.started_at or datetime.now(timezone.utc)
+        if selection.model_configuration.verification_status == "unverified":
+            selection.model_configuration.verification_status = "verified"
+            selection.model_configuration.verification_error = None
+            selection.model_configuration.verified_at = datetime.now(timezone.utc)
         await db.commit()
 
     async def _invoke_same_selection(
@@ -165,57 +202,50 @@ class ModelInvocationBoundary:
     async def complete(
         self, db: AsyncSession, task_id: UUID, stage: str, messages: list[dict], *, temperature: float = 0.7,
     ) -> InvocationResult:
-        selection, catalog, credential = await self._selection_and_credential(db, task_id, stage)
+        selection, credential = await self._selection_and_credential(db, task_id, stage)
         configuration = selection.model_configuration
-        content = await self._invoke_same_selection(db, selection, configuration, stage, lambda: self.client.complete(
-                provider=catalog.provider, model_id=catalog.model_id, credential=credential,
-                messages=messages, temperature=temperature,
-            ))
+        snapshot = dict(selection.resolution_snapshot)
+        content = await self._invoke_same_selection(db, selection, configuration, stage, lambda: self.client.complete(**self._call_parameters(snapshot, credential=credential, messages=messages, temperature=temperature)))
         await self._record_success(db, selection)
         return InvocationResult(content=content, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
     async def generate_image(
         self, db: AsyncSession, task_id: UUID, prompt: str, *, size: str = "1024x1024", reference_image_url: str | None = None,
     ) -> InvocationResult:
-        selection, catalog, credential = await self._selection_and_credential(db, task_id, "keyframe_image")
+        selection, credential = await self._selection_and_credential(db, task_id, "keyframe_image")
         configuration = selection.model_configuration
-        url = await self._invoke_same_selection(db, selection, configuration, "keyframe_image", lambda: self.client.image(
-                provider=catalog.provider, model_id=catalog.model_id, credential=credential, prompt=prompt, size=size, reference_image_url=reference_image_url,
-            ))
+        snapshot = dict(selection.resolution_snapshot)
+        url = await self._invoke_same_selection(db, selection, configuration, "keyframe_image", lambda: self.client.image(**self._call_parameters(snapshot, credential=credential, prompt=prompt, size=size, reference_image_url=reference_image_url)))
         await self._record_success(db, selection)
         return InvocationResult(content=url, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
     async def generate_speech(
         self, db: AsyncSession, task_id: UUID, text: str, *, voice: str = "default",
     ) -> InvocationResult:
-        selection, catalog, credential = await self._selection_and_credential(db, task_id, "voice_generation")
+        selection, credential = await self._selection_and_credential(db, task_id, "voice_generation")
         configuration = selection.model_configuration
-        audio = await self._invoke_same_selection(db, selection, configuration, "voice_generation", lambda: self.client.speech(
-                provider=catalog.provider, model_id=catalog.model_id, credential=credential, text=text, voice=voice,
-            ))
+        snapshot = dict(selection.resolution_snapshot)
+        audio = await self._invoke_same_selection(db, selection, configuration, "voice_generation", lambda: self.client.speech(**self._call_parameters(snapshot, credential=credential, text=text, voice=voice)))
         await self._record_success(db, selection)
         return InvocationResult(content=audio, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
     async def transcribe(self, db: AsyncSession, task_id: UUID, file_path: Path) -> InvocationResult:
-        selection, catalog, credential = await self._selection_and_credential(db, task_id, "viral_analysis")
+        selection, credential = await self._selection_and_credential(db, task_id, "viral_analysis")
         configuration = selection.model_configuration
-        transcript = await self._invoke_same_selection(db, selection, configuration, "viral_analysis", lambda: self.client.transcription(
-                provider=catalog.provider, model_id=catalog.model_id, credential=credential, file_path=file_path,
-            ))
+        snapshot = dict(selection.resolution_snapshot)
+        transcript = await self._invoke_same_selection(db, selection, configuration, "viral_analysis", lambda: self.client.transcription(**self._call_parameters(snapshot, credential=credential, file_path=file_path)))
         await self._record_success(db, selection)
         return InvocationResult(content=transcript, model_resolution_snapshot=dict(selection.resolution_snapshot))
 
     async def generate_video(
         self, db: AsyncSession, task_id: UUID, prompt: str, *, seconds: int, image_urls: list[str],
     ) -> InvocationResult:
-        selection, catalog, credential = await self._selection_and_credential(db, task_id, "clip_video")
+        selection, credential = await self._selection_and_credential(db, task_id, "clip_video")
         configuration = selection.model_configuration
-        maximum = int((catalog.constraints or {}).get("max_duration_seconds", seconds))
+        snapshot = dict(selection.resolution_snapshot)
+        maximum = int((snapshot.get("constraints") or {}).get("max_duration_seconds", seconds))
         if seconds > maximum:
             raise ModelAvailabilityFailure("Requested clip duration exceeds the frozen model constraint")
-        video = await self._invoke_same_selection(db, selection, configuration, "clip_video", lambda: self.client.video(
-                provider=catalog.provider, model_id=catalog.model_id, credential=credential,
-                prompt=prompt, seconds=seconds, image_urls=image_urls,
-            ))
+        video = await self._invoke_same_selection(db, selection, configuration, "clip_video", lambda: self.client.video(**self._call_parameters(snapshot, credential=credential, prompt=prompt, seconds=seconds, image_urls=image_urls)))
         await self._record_success(db, selection)
         return InvocationResult(content=video, model_resolution_snapshot=dict(selection.resolution_snapshot))

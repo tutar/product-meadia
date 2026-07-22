@@ -16,21 +16,27 @@ from src.schemas.model_configuration import (
 )
 from src.services.model_catalog import ensure_provider_model_catalog
 from src.services.model_credentials import encrypt_credential
-from src.services.model_verification import SafeModelVerifier
+from src.services.model_verification import SafeModelVerifier, is_selectable
 
 router = APIRouter(tags=["Model configurations"])
 MODEL_SELECTION_STAGES = frozenset({"creative_planning", "scriptwriting", "keyframe_image", "clip_video", "voice_generation", "viral_analysis"})
 
 
 def configuration_response(configuration: ModelConfiguration) -> ModelConfigurationResponse:
-    catalog = configuration.catalog_model
+    template = configuration.catalog_model
+    model_id = configuration.model_id or (template.model_id if template else None)
+    display_name = configuration.display_name or (template.display_name if template else None)
+    capabilities = configuration.capabilities or (template.capabilities if template else [])
+    constraints = configuration.constraints or (template.constraints if template else {})
     return ModelConfigurationResponse(
-        id=configuration.id, catalog_model_id=catalog.id, provider=catalog.provider,
-        model_id=catalog.model_id, display_name=catalog.display_name,
-        capabilities=list(catalog.capabilities), constraints=dict(catalog.constraints),
+        id=configuration.id, catalog_model_id=configuration.catalog_model_id,
+        adapter=configuration.adapter, api_base=configuration.api_base,
+        provider=configuration.adapter, model_id=model_id, display_name=display_name,
+        capabilities=list(capabilities), constraints=dict(constraints), revision=configuration.revision,
         uses_platform_default=configuration.uses_platform_default,
         verification_status=configuration.verification_status,
         verification_error=configuration.verification_error,
+        first_use_eligible=is_selectable(configuration),
         verified_at=configuration.verified_at, revoked_at=configuration.revoked_at,
         created_at=configuration.created_at, updated_at=configuration.updated_at,
     )
@@ -52,13 +58,19 @@ async def _catalog_model(db: AsyncSession, catalog_model_id: UUID) -> ProviderMo
 
 
 async def create_model_configuration(body: ModelConfigurationCreate, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user)) -> ModelConfigurationResponse:
-    catalog = await _catalog_model(db, body.catalog_model_id)
-    if body.use_platform_default and not catalog.platform_default_available:
-        raise HTTPException(status_code=422, detail="Catalog model has no platform default")
+    catalog = await _catalog_model(db, body.catalog_model_id) if body.catalog_model_id else None
+    if body.use_platform_default:
+        raise HTTPException(status_code=422, detail="Platform defaults are not supported")
     configuration = ModelConfiguration(
-        owner_user_id=user.id, catalog_model_id=catalog.id,
+        owner_user_id=user.id, catalog_model_id=catalog.id if catalog else None,
+        adapter=body.adapter or catalog.provider,
+        api_base=body.api_base,
+        model_id=body.model_id or catalog.model_id,
+        display_name=body.display_name or catalog.display_name,
+        capabilities=body.capabilities if body.capabilities is not None else list(catalog.capabilities),
+        constraints=body.constraints if body.constraints is not None else dict(catalog.constraints) if catalog else {},
         credential_ciphertext=encrypt_credential(body.credential) if body.credential else None,
-        uses_platform_default=body.use_platform_default,
+        uses_platform_default=False,
     )
     db.add(configuration)
     await db.commit()
@@ -88,17 +100,21 @@ async def update_model_configuration(configuration_id: UUID, body: ModelConfigur
     configuration = await owned_configuration(db, user, configuration_id)
     if configuration.revoked_at:
         raise HTTPException(status_code=409, detail="Revoked model configurations cannot be updated")
+    changed = False
+    for field in ("display_name", "adapter", "api_base", "model_id", "capabilities", "constraints"):
+        value = getattr(body, field)
+        if field in body.model_fields_set and getattr(configuration, field) != value:
+            setattr(configuration, field, value)
+            changed = True
     if body.credential is not None:
         configuration.credential_ciphertext = encrypt_credential(body.credential)
         configuration.uses_platform_default = False
-    if body.use_platform_default is True:
-        if not configuration.catalog_model.platform_default_available:
-            raise HTTPException(status_code=422, detail="Catalog model has no platform default")
-        configuration.credential_ciphertext = None
-        configuration.uses_platform_default = True
-    configuration.verification_status = "unverified"
-    configuration.verification_error = None
-    configuration.verified_at = None
+        changed = True
+    if changed:
+        configuration.revision += 1
+        configuration.verification_status = "unverified"
+        configuration.verification_error = None
+        configuration.verified_at = None
     await db.commit()
     return configuration_response(await reloaded_configuration(db, configuration.id))
 
@@ -137,9 +153,9 @@ async def set_stage_model_default(stage: str, body: StageModelDefaultUpsert, db:
     if stage not in MODEL_SELECTION_STAGES:
         raise HTTPException(status_code=404, detail="Unknown model selection stage")
     configuration = await owned_configuration(db, user, body.model_configuration_id)
-    if configuration.verification_status != "verified":
+    if not is_selectable(configuration):
         raise HTTPException(status_code=422, detail="Only verified model configurations can be selected")
-    if stage not in configuration.catalog_model.capabilities:
+    if stage not in configuration.capabilities:
         raise HTTPException(status_code=422, detail="Model configuration is not compatible with this stage")
     default = await db.scalar(select(StageModelDefault).where(
         StageModelDefault.owner_user_id == user.id, StageModelDefault.stage == stage,

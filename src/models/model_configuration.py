@@ -29,7 +29,18 @@ class ModelConfiguration(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "model_configurations"
 
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    catalog_model_id = Column(UUID(as_uuid=True), ForeignKey("provider_model_catalog.id", ondelete="RESTRICT"), nullable=False)
+    # A catalog row is a template source only. All runtime fields are copied to
+    # this User-owned record so template edits cannot mutate a User's model.
+    catalog_model_id = Column(UUID(as_uuid=True), ForeignKey("provider_model_catalog.id", ondelete="RESTRICT"), nullable=True)
+    adapter = Column(String(80), nullable=False, default="openai")
+    api_base = Column(String(1000), nullable=True)
+    # Nullable only for the pre-release test fixtures that still exercise old
+    # template-backed rows; all API-created configurations validate these.
+    model_id = Column(String(255), nullable=True)
+    display_name = Column(String(255), nullable=True)
+    capabilities = Column(JSONB, nullable=False, default=list)
+    constraints = Column(JSONB, nullable=False, default=dict)
+    revision = Column(Integer, nullable=False, default=1)
     credential_ciphertext = Column(Text, nullable=True)
     uses_platform_default = Column(Boolean, nullable=False, default=False)
     verification_status = Column(String(20), nullable=False, default="unverified")
