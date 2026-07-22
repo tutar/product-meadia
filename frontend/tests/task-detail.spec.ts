@@ -319,7 +319,7 @@ test("composition review separates approved shot segments from final composition
   expect(cardBox).not.toBeNull();
   for (const control of [
     composition.getByRole("button", { name: "Preview source" }),
-    composition.getByRole("link", { name: "Download HTML" }),
+    composition.getByRole("button", { name: "Download HTML" }),
     composition.getByRole("button", { name: "Replay source" }),
     composition.getByRole("button", { name: "Reconstruct source" }),
     composition.getByRole("button", { name: "Approve" }),
@@ -330,6 +330,54 @@ test("composition review separates approved shot segments from final composition
     expect(box!.x + box!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
   }
   expect((await approvedSegments.boundingBox())!.y).toBeLessThan((await composition.boundingBox())!.y);
+});
+
+test("composition source controls localize and download through the authorized API", async ({ page }) => {
+  let authorization = "";
+  let previewAuthorization = "";
+  await page.addInitScript(() => {
+    localStorage.setItem("access_token", "test");
+    localStorage.setItem("i18nextLng", "zh");
+  });
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh", route => route.fulfill({ json: {
+    id: "task-composition-review-zh", status: "composition_review", type: "promo", image_count: 1, progress_log: [],
+  } }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/editing-blueprint", route => route.fulfill({ json: { entries: [] } }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/video-candidates", route => route.fulfill({ json: [
+    { id: "composition-zh", kind: "composition", is_current: true, status: "pending_review", access_url: "https://example.test/composition.mp4" },
+  ] }));
+  await page.route("**/api/v1/tasks/task-composition-review-zh/video-candidates/composition-zh/composition-source/download", route => {
+    authorization = route.request().headers()["authorization"] || "";
+    return route.fulfill({
+      body: "<div>composition source</div>",
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-disposition": 'attachment; filename="composition-source.html"',
+      },
+    });
+  });
+  await page.route("**/api/v1/tasks/task-composition-review-zh/video-candidates/composition-zh/composition-source/preview", route => {
+    previewAuthorization = route.request().headers()["authorization"] || "";
+    return route.fulfill({
+      body: "<main>composition source preview</main>",
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  });
+
+  await page.goto("/tasks/task-composition-review-zh");
+  const composition = page.getByRole("region", { name: "成片审核" });
+  await composition.getByRole("button", { name: "查看源文件" }).click();
+  await expect(page.frameLocator('iframe[title="成片源文件预览"]').getByText("composition source preview")).toBeVisible();
+  expect(previewAuthorization).toBe("Bearer test");
+  await expect(page.getByRole("button", { name: "关闭预览" })).toBeVisible();
+  const download = page.waitForEvent("download");
+  await composition.getByRole("button", { name: "下载 HTML" }).click();
+  expect((await download).suggestedFilename()).toBe("composition-source.html");
+  expect(authorization).toBe("Bearer test");
+  await expect(composition.getByRole("button", { name: "重新渲染源文件" })).toBeVisible();
+  await expect(composition.getByRole("button", { name: "重建源文件" })).toBeVisible();
 });
 
 test("keyframe review opens a full-screen viewer with keyboard navigation", async ({ page }) => {

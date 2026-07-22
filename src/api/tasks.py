@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlalchemy import case, delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -359,7 +359,13 @@ async def download_composition_source(
     media: MediaService = Depends(get_media_service),
 ):
     snapshot = await _owned_composition_source(db, user, task_id, candidate_id)
-    return RedirectResponse(await media.access_url(snapshot.asset_id, user.id), status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    asset = await media.get_owned_asset(snapshot.asset_id, user.id)
+    html = await media.storage.download(asset.bucket, asset.object_key)
+    return Response(
+        content=html,
+        media_type=asset.content_type or "text/html; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="composition-source.html"'},
+    )
 
 
 @router.get("/{task_id}/video-candidates/{candidate_id}/composition-source/preview", response_class=HTMLResponse)

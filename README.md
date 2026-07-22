@@ -99,6 +99,8 @@ npm install -g hyperframes
 
 `.env.example` documents deployment-level settings. At minimum, configure the PostgreSQL URL, Redis broker URL, and the endpoint and credentials required by your S3-compatible storage integration. Model endpoints and BYOKs belong to user-owned model configurations; do not put them in `.env` or commit them to Git. The sample currently includes a RustFS endpoint as a development example; adapt it for your chosen provider.
 
+When the browser reads a Media Access URL directly from object storage, configure that bucket's CORS policy to allow `GET` and `HEAD` from the frontend origin. For local development this is `http://localhost:5173`; production deployments must use their own HTTPS frontend origin. Do not use a wildcard origin for private media.
+
 ## Development and tests
 
 Backend tests:

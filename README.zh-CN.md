@@ -99,6 +99,8 @@ npm install -g hyperframes
 
 `.env.example` 列出了部署级配置。至少需要配置 PostgreSQL URL、Redis broker URL，以及 S3 兼容对象存储集成所需的地址和凭据。模型 endpoint 与 BYOK 属于用户的模型配置，不应写入 `.env` 或提交到 Git。示例目前包含 RustFS 开发环境地址，请根据实际使用的对象存储调整。
 
+当浏览器直接从对象存储读取 Media Access URL 时，必须为对应 bucket 配置 CORS：仅允许前端来源发起 `GET` 和 `HEAD`。本地开发来源是 `http://localhost:5173`；生产环境应替换为自身的 HTTPS 前端来源。私有媒体不要使用通配符来源。
+
 ## 开发与测试
 
 后端测试：
