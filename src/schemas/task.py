@@ -99,6 +99,7 @@ class VideoCandidateResponse(BaseModel):
     version: int
     status: str
     is_current: bool
+    has_composition_source: bool = False
     generation_context: dict = {}
 
     model_config = {"from_attributes": True}

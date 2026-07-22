@@ -730,7 +730,11 @@ async def review_character(
 async def list_video_candidates(task_id: UUID, db: AsyncSession = Depends(get_async_session), user: User = Depends(get_current_user), media: MediaService = Depends(get_media_service)):
     await owned_task(db, user, task_id)
     candidates = (await db.scalars(select(VideoCandidate).where(VideoCandidate.task_id == task_id).order_by(VideoCandidate.kind, VideoCandidate.sort_order, VideoCandidate.version))).all()
-    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "kind": candidate.kind, "sort_order": candidate.sort_order, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current, "generation_context": candidate.generation_context or {}} for candidate in candidates]
+    source_candidate_ids = set((await db.scalars(select(CompositionSourceSnapshot.candidate_id).where(
+        CompositionSourceSnapshot.task_id == task_id,
+        CompositionSourceSnapshot.candidate_id.is_not(None),
+    ))).all())
+    return [{"id": candidate.id, "task_id": candidate.task_id, "asset_id": candidate.asset_id, "access_url": await media.access_url(candidate.asset_id, user.id) if candidate.asset_id else None, "kind": candidate.kind, "sort_order": candidate.sort_order, "version": candidate.version, "status": candidate.status, "is_current": candidate.is_current, "has_composition_source": candidate.id in source_candidate_ids, "generation_context": candidate.generation_context or {}} for candidate in candidates]
 
 
 @router.get("/{task_id}/editing-blueprint", response_model=EditingBlueprintResponse)

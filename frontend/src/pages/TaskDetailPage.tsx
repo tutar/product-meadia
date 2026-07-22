@@ -500,10 +500,14 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
               </div>}
               <div className="video-review-actions">
                 {candidate.kind === "composition" && <>
-                  <button className="btn btn-ghost btn-sm" onClick={() => previewCompositionSource(candidate.id)}>{t("task.previewCompositionSource")}</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => downloadCompositionSource(candidate.id)}>{t("task.downloadCompositionSource")}</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => runAction(`replay:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/replay`); await fetchData(); })}>{t("task.replayCompositionSource")}</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => runAction(`reconstruct:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/reconstruct`); await fetchData(); })}>{t("task.reconstructCompositionSource")}</button>
+                  {candidate.has_composition_source ? <>
+                    <button className="btn btn-ghost btn-sm" onClick={() => previewCompositionSource(candidate.id)}>{t("task.previewCompositionSource")}</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => downloadCompositionSource(candidate.id)}>{t("task.downloadCompositionSource")}</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => runAction(`replay:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/replay`); await fetchData(); })}>{t("task.replayCompositionSource")}</button>
+                  </> : <>
+                    <p className="text-secondary text-sm">{t("task.compositionSourceUnavailable")}</p>
+                    <button className="btn btn-ghost btn-sm" onClick={() => runAction(`reconstruct:${candidate.id}`, async () => { await api.post(`/tasks/${id}/video-candidates/${candidate.id}/composition-source/reconstruct`); await fetchData(); })}>{t("task.reconstructCompositionSource")}</button>
+                  </>}
                 </>}
                 {(task.status === "video_review" && candidate.kind === "clip" || task.status === "composition_review" && candidate.kind === "composition") && candidate.status === "pending_review" && <>
                   <button className="btn btn-primary btn-sm" onClick={() => reviewVideoCandidate(candidate.id, "approve")}>{t("task.approve")}</button>

@@ -128,6 +128,7 @@
     "reconstructCompositionSource": "重建源文件",
     "compositionSourcePreview": "成片源文件预览",
     "closePreview": "关闭预览",
+    "compositionSourceUnavailable": "此成片没有保留源文件。",
     "regenerateClip": "重新生成片段",
     "recompose": "重新合成",
     "editingBlueprint": "剪辑蓝图",

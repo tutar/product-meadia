@@ -128,6 +128,7 @@
     "reconstructCompositionSource": "Reconstruct source",
     "compositionSourcePreview": "Composition source preview",
     "closePreview": "Close preview",
+    "compositionSourceUnavailable": "This final video has no retained source file.",
     "regenerateClip": "Regenerate clip",
     "recompose": "Recompose",
     "editingBlueprint": "Editing Blueprint",

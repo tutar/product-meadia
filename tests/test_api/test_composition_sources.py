@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock
 
-from src.api.tasks import download_composition_source, get_composition_source, replay_composition_source, reconstruct_composition_source
+from src.api.tasks import download_composition_source, get_composition_source, list_video_candidates, replay_composition_source, reconstruct_composition_source
 from src.media.storage import memory_storage
 from src.services.media_service import MediaService
 from src.models.media_asset import MediaAsset
@@ -104,6 +104,30 @@ async def test_owner_downloads_composition_source_as_html_attachment(db_session)
     assert response.headers["content-type"] == "text/html; charset=utf-8"
     assert response.headers["content-disposition"] == 'attachment; filename="composition-source.html"'
     assert response.body == b"<div>composition source</div>"
+
+
+@pytest.mark.asyncio
+async def test_video_candidate_list_reports_whether_a_composition_source_is_retained(db_session):
+    owner = User(email="source-availability@composition-source.test", hashed_password="x")
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    db_session.add_all([owner, task])
+    await db_session.flush()
+    storage = memory_storage()
+    media = MediaService(db_session, storage, bucket="media")
+    legacy_asset = await media.create_asset(owner_user_id=owner.id, category="final_video", data=b"legacy", content_type="video/mp4", filename="legacy.mp4", task_id=task.id)
+    captured_asset = await media.create_asset(owner_user_id=owner.id, category="final_video", data=b"captured", content_type="video/mp4", filename="captured.mp4", task_id=task.id)
+    source_asset = await media.create_asset(owner_user_id=owner.id, category="composition_source", data=b"<div />", content_type="text/html", filename="source.html", task_id=task.id)
+    legacy = VideoCandidate(task_id=task.id, asset_id=legacy_asset.id, kind="composition", sort_order=0, version=1)
+    captured = VideoCandidate(task_id=task.id, asset_id=captured_asset.id, kind="composition", sort_order=0, version=2)
+    db_session.add_all([legacy, captured])
+    await db_session.flush()
+    db_session.add(CompositionSourceSnapshot(task_id=task.id, candidate_id=captured.id, asset_id=source_asset.id, source_kind="captured", canonical_html_checksum="2a" * 32, input_asset_ids=[], render_spec={}, provenance={}))
+    await db_session.commit()
+
+    candidates = await list_video_candidates(task.id, db=db_session, user=owner, media=media)
+
+    availability = {str(candidate["id"]): candidate["has_composition_source"] for candidate in candidates}
+    assert availability == {str(legacy.id): False, str(captured.id): True}
 
 
 @pytest.mark.asyncio
