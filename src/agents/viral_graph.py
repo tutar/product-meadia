@@ -1,6 +1,5 @@
 import json
 import math
-from openai import OpenAIError
 from langgraph.graph import StateGraph, END
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
@@ -39,17 +38,13 @@ def review_guidance(state: VideoAgentState, target_type: str) -> str:
     return "\n\nReviewer improvement guidance:\n" + "\n".join(guidance) if guidance else ""
 
 
+def voiceover_generation_key(state: VideoAgentState) -> str:
+    ids = [item["id"] for item in state.get("review_feedback", []) if item.get("target_type") == "voiceover" and item.get("id")]
+    return "voiceover:" + ":".join(ids) if ids else "initial"
+
+
 async def composition_options(state: VideoAgentState) -> dict:
-    defaults = {"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}
-    guidance = review_guidance(state, "composition")
-    if not guidance:
-        return defaults
-    try:
-        result = await llm_chat("scriptwriter", "Return only JSON with clip_duration (3-7), subtitle_offset (6-18), and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2, task_id=state.get("task_id"), model_stage="creative_planning")
-        proposed = json.loads(result)
-        return {"clip_duration": min(7, max(3, int(proposed.get("clip_duration", 5)))), "subtitle_offset": min(18, max(6, int(proposed.get("subtitle_offset", 10)))), "subtitle_size": min(42, max(24, int(proposed.get("subtitle_size", 32))))}
-    except (OpenAIError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
-        return defaults
+    return {"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}
 
 
 def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
@@ -102,7 +97,7 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     async def wait_image_review(state: VideoAgentState) -> dict:
         return {}
 
-    async def generate_clips_and_voiceover(state: VideoAgentState) -> dict:
+    async def generate_video_clips(state: VideoAgentState) -> dict:
         clips = list(state.get("video_clips") or [])
         if not clips:
             for img in state.get("generated_images", []):
@@ -114,24 +109,16 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
                     )
                     clips.append(clip)
 
-        if state.get("tts_audio_url"):
-            audio_url = state["tts_audio_url"]
-            words = state["tts_words"]
-        else:
-            tts_result = await generate_tts(
-                state.get("edited_script_content") or state["script_content"], task_id=state.get("task_id")
-            )
-            audio_url = tts_result["audio_url"]
-            words = tts_result["words"]
-            tts_duration_seconds = tts_result["tts_duration_seconds"]
-        if state.get("tts_audio_url"):
-            tts_duration_seconds = state.get("tts_duration_seconds", 0)
-        return {
-            "video_clips": clips,
-            "tts_audio_url": audio_url,
-            "tts_words": words,
-            "tts_duration_seconds": tts_duration_seconds,
-        }
+        return {"video_clips": clips, "video_clips_reused": bool(state.get("video_clips"))}
+
+    async def generate_voiceover(state: VideoAgentState) -> dict:
+        if state.get("tts_audio_url") and not review_guidance(state, "voiceover"):
+            return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"], "tts_duration_seconds": state.get("tts_duration_seconds", 0)}
+        result = await generate_tts(state.get("voiceover_text") or state.get("edited_script_content") or state["script_content"], task_id=state.get("task_id"))
+        return {"tts_audio_url": result["audio_url"], "tts_words": result["words"], "tts_duration_seconds": result["tts_duration_seconds"], "tts_generation_key": voiceover_generation_key(state)}
+
+    async def wait_voice_review(state: VideoAgentState) -> dict:
+        return {} if state.get("voiceover_approved") else {"__status": "voice_review"}
 
     async def composite(state: VideoAgentState) -> dict:
         clips = state.get("video_clips", [])
@@ -176,7 +163,9 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_node("wait_script_review", wait_script_review)
     graph.add_node("generate_images", tracked_node("generate_images", generate_images))
     graph.add_node("wait_image_review", wait_image_review)
-    graph.add_node("generate_clips_and_voiceover", tracked_node("generate_clips_and_voiceover", generate_clips_and_voiceover))
+    graph.add_node("generate_video_clips", tracked_node("generate_video_clips", generate_video_clips))
+    graph.add_node("generate_voiceover", tracked_node("generate_voiceover", generate_voiceover))
+    graph.add_node("wait_voice_review", wait_voice_review)
     graph.add_node("composite", tracked_node("composite", composite))
     graph.add_node("render_composition", tracked_node("render_composition", render_composition))
 
@@ -186,8 +175,10 @@ def build_viral_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
     graph.add_edge("generate_rewritten_script", "wait_script_review")
     graph.add_edge("wait_script_review", "generate_images")
     graph.add_edge("generate_images", "wait_image_review")
-    graph.add_edge("wait_image_review", "generate_clips_and_voiceover")
-    graph.add_edge("generate_clips_and_voiceover", "composite")
+    graph.add_edge("wait_image_review", "generate_video_clips")
+    graph.add_edge("generate_video_clips", "generate_voiceover")
+    graph.add_edge("generate_voiceover", "wait_voice_review")
+    graph.add_edge("wait_voice_review", "composite")
     graph.add_edge("composite", "render_composition")
     graph.add_edge("render_composition", END)
 

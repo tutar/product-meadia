@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
 
 import pytest
+from sqlalchemy import select
 
 from src.models.composition_source import CompositionSourceSnapshot
 from src.models.media_asset import MediaAsset
 from src.models.task import VideoTask
 from src.models.user import User
 from src.models.video_candidate import VideoCandidate
+from src.models.voiceover_candidate import VoiceoverCandidate
 from src.media.storage import memory_storage
 
 
@@ -15,7 +17,7 @@ async def test_snapshot_is_persisted_before_the_render_node_can_run(db_session, 
     from src.tasks import video_tasks
 
     owner = User(email="capture@composition-source.test", hashed_password="x")
-    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1)
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1, voiceover_review_enabled=True)
     db_session.add_all([owner, task]); await db_session.flush()
     clip = MediaAsset(owner_user_id=owner.id, task_id=task.id, category="video_clip", bucket="media", object_key="clip", content_type="video/mp4", size_bytes=1, checksum="a" * 64)
     audio = MediaAsset(owner_user_id=owner.id, task_id=task.id, category="tts_audio", bucket="media", object_key="audio", content_type="audio/wav", size_bytes=1, checksum="b" * 64)
@@ -39,3 +41,35 @@ async def test_snapshot_is_persisted_before_the_render_node_can_run(db_session, 
     assert "https://" not in persisted
     assert f"asset://{clip.id}" in persisted
     assert f"asset://{audio.id}" in persisted
+
+
+@pytest.mark.asyncio
+async def test_voice_generation_persists_a_candidate_and_waits_for_voice_review(db_session, monkeypatch):
+    from src.tasks import video_tasks
+
+    owner = User(email="voice-review@composition-source.test", hashed_password="x")
+    task = VideoTask(user=owner, product_snapshot={}, type="promo", image_count=1, voiceover_review_enabled=True)
+    db_session.add_all([owner, task]); await db_session.commit()
+
+    @asynccontextmanager
+    async def session_factory():
+        yield db_session
+    monkeypatch.setattr(video_tasks, "SessionLocal", lambda: session_factory())
+    monkeypatch.setattr(video_tasks, "create_rustfs_storage", lambda _: memory_storage())
+
+    async def fetch_voice(_url):
+        return b"voice", "audio/wav"
+    monkeypatch.setattr(video_tasks, "_fetch_provider_media", fetch_voice)
+
+    await video_tasks._persist_node_output(str(task.id), "generate_voiceover", {
+        "tts_audio_url": "https://provider.test/voice.wav",
+        "tts_duration_seconds": 2.5,
+        "tts_generation_key": "initial",
+        "voiceover_text": "A concise narration.",
+    })
+
+    candidate = await db_session.scalar(select(VoiceoverCandidate))
+    await db_session.refresh(task)
+    assert candidate.narration_text == "A concise narration."
+    assert candidate.status == "pending_review"
+    assert task.status == "voice_review"

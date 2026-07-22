@@ -9,6 +9,7 @@ from src.models.task import VideoTask
 from src.models.script import Script
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
+from src.models.voiceover_candidate import VoiceoverCandidate
 from src.models.viral_analysis import ViralAnalysis
 from src.models.catalog_initialization import CatalogInitialization
 from src.models.category import Category, CategoryAttribute
@@ -42,6 +43,7 @@ __all__ = [
     "EditingBlueprint",
     "User",
     "VideoCandidate",
+    "VoiceoverCandidate",
     "VideoTask",
     "ViralAnalysis",
 ]

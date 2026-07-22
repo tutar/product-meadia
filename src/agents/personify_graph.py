@@ -1,5 +1,3 @@
-import json
-from openai import OpenAIError
 from langgraph.graph import StateGraph, END
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
@@ -44,17 +42,13 @@ def review_guidance(state: VideoAgentState, target_type: str) -> str:
     return "\n\nReviewer improvement guidance:\n" + "\n".join(guidance) if guidance else ""
 
 
+def voiceover_generation_key(state: VideoAgentState) -> str:
+    ids = [item["id"] for item in state.get("review_feedback", []) if item.get("target_type") == "voiceover" and item.get("id")]
+    return "voiceover:" + ":".join(ids) if ids else "initial"
+
+
 async def composition_options(state: VideoAgentState) -> dict:
-    defaults = {"subtitle_offset": 12, "subtitle_size": 30}
-    guidance = review_guidance(state, "composition")
-    if not guidance:
-        return defaults
-    try:
-        result = await llm_chat("scriptwriter", "Return only JSON with subtitle_offset (6-18) and subtitle_size (24-42).", "Adjust this video composition using the reviewer guidance:" + guidance, temperature=0.2, task_id=state.get("task_id"), model_stage="creative_planning")
-        proposed = json.loads(result)
-        return {"subtitle_offset": min(18, max(6, int(proposed.get("subtitle_offset", 12)))), "subtitle_size": min(42, max(24, int(proposed.get("subtitle_size", 30))))}
-    except (OpenAIError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
-        return defaults
+    return {"subtitle_offset": 12, "subtitle_size": 30}
 
 
 def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
@@ -88,28 +82,26 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
     async def wait_script_review(state: VideoAgentState) -> dict:
         return {}
 
-    async def generate_tts_and_lipsync(state: VideoAgentState) -> dict:
-        if state.get("tts_audio_url"):
-            audio_url = state["tts_audio_url"]
-            words = state["tts_words"]
-        else:
-            tts_result = await generate_tts(
-                state.get("edited_script_content") or state["script_content"], task_id=state.get("task_id")
-            )
-            audio_url = tts_result["audio_url"]
-            words = tts_result["words"]
-            tts_duration_seconds = tts_result["tts_duration_seconds"]
-        if state.get("tts_audio_url"):
-            tts_duration_seconds = state.get("tts_duration_seconds", 0)
-        lipsync_url = state.get("lipsync_video_url") or await run_lipsync(
-            state["character_image_url"], audio_url
+    async def generate_voiceover(state: VideoAgentState) -> dict:
+        if state.get("tts_audio_url") and not review_guidance(state, "voiceover"):
+            return {"tts_audio_url": state["tts_audio_url"], "tts_words": state["tts_words"], "tts_duration_seconds": state.get("tts_duration_seconds", 0)}
+        tts_result = await generate_tts(
+            state.get("voiceover_text") or state.get("edited_script_content") or state["script_content"], task_id=state.get("task_id")
         )
         return {
-            "tts_audio_url": audio_url,
-            "tts_words": words,
-            "tts_duration_seconds": tts_duration_seconds,
-            "lipsync_video_url": lipsync_url,
+            "tts_audio_url": tts_result["audio_url"],
+            "tts_words": tts_result["words"],
+            "tts_duration_seconds": tts_result["tts_duration_seconds"],
+            "tts_generation_key": voiceover_generation_key(state),
         }
+
+    async def wait_voice_review(state: VideoAgentState) -> dict:
+        return {} if state.get("voiceover_approved") else {"__status": "voice_review"}
+
+    async def generate_lipsync(state: VideoAgentState) -> dict:
+        if state.get("lipsync_video_url"):
+            return {"lipsync_video_url": state["lipsync_video_url"]}
+        return {"lipsync_video_url": await run_lipsync(state["character_image_url"], state["tts_audio_url"])}
 
     async def composite(state: VideoAgentState) -> dict:
         total_duration = float(state.get("tts_duration_seconds") or 0) or (
@@ -145,7 +137,9 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
     graph.add_node("wait_character_review", wait_character_review)
     graph.add_node("generate_script", tracked_node("generate_script", generate_script))
     graph.add_node("wait_script_review", wait_script_review)
-    graph.add_node("generate_tts_and_lipsync", tracked_node("generate_tts_and_lipsync", generate_tts_and_lipsync))
+    graph.add_node("generate_voiceover", tracked_node("generate_voiceover", generate_voiceover))
+    graph.add_node("wait_voice_review", wait_voice_review)
+    graph.add_node("generate_lipsync", tracked_node("generate_lipsync", generate_lipsync))
     graph.add_node("composite", tracked_node("composite", composite))
     graph.add_node("render_composition", tracked_node("render_composition", render_composition))
 
@@ -153,8 +147,10 @@ def build_personify_graph(checkpointer=None, interrupt_before=None) -> StateGrap
     graph.add_edge("generate_character", "wait_character_review")
     graph.add_edge("wait_character_review", "generate_script")
     graph.add_edge("generate_script", "wait_script_review")
-    graph.add_edge("wait_script_review", "generate_tts_and_lipsync")
-    graph.add_edge("generate_tts_and_lipsync", "composite")
+    graph.add_edge("wait_script_review", "generate_voiceover")
+    graph.add_edge("generate_voiceover", "wait_voice_review")
+    graph.add_edge("wait_voice_review", "generate_lipsync")
+    graph.add_edge("generate_lipsync", "composite")
     graph.add_edge("composite", "render_composition")
     graph.add_edge("render_composition", END)
 

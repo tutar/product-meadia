@@ -1,5 +1,13 @@
 import pytest
 from unittest.mock import AsyncMock
+from sqlalchemy.pool import NullPool
+
+
+def test_shared_async_engine_does_not_pool_connections_across_celery_event_loops():
+    """Celery invokes async work through a fresh loop for each task."""
+    import src.database as database
+
+    assert isinstance(database.engine.sync_engine.pool, NullPool)
 
 
 @pytest.mark.asyncio
@@ -36,6 +44,7 @@ async def test_ensure_schema_adds_legacy_product_columns(monkeypatch):
     assert any("ALTER TABLE generation_records ADD COLUMN IF NOT EXISTS model_resolution_snapshot" in statement for statement in statements)
     assert any("ALTER TABLE stage_model_selections ADD COLUMN IF NOT EXISTS availability_status" in statement for statement in statements)
     assert any("ALTER TABLE video_tasks ADD COLUMN IF NOT EXISTS product_snapshot JSONB" in statement for statement in statements)
+    assert any("voiceover_review_enabled" in statement for statement in statements)
     assert any("ALTER TABLE video_tasks DROP CONSTRAINT IF EXISTS video_tasks_status_check" in statement for statement in statements)
     assert any("video_review" in statement and "composition_review" in statement for statement in statements)
     assert any("composition_source" in statement for statement in statements)

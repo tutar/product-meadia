@@ -1,10 +1,18 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import NullPool
 from src.config import settings
 from src.models.base import Base
 from src import models  # noqa: F401 - register all model metadata before create_all
 
-engine = create_async_engine(settings.database_url, echo=(settings.app_env == "development"))
+# Celery runs async task bodies through asyncio.run(), which creates a new
+# event loop per invocation. asyncpg connections are loop-bound, so a shared
+# pooled connection can otherwise be reused by a later task on another loop.
+engine = create_async_engine(
+    settings.database_url,
+    echo=(settings.app_env == "development"),
+    poolclass=NullPool,
+)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -83,6 +91,7 @@ async def ensure_schema() -> None:
         legacy_task_columns = {
             "user_id": "UUID",
             "product_snapshot": "JSONB NOT NULL DEFAULT '{}'::jsonb",
+            "voiceover_review_enabled": "BOOLEAN NOT NULL DEFAULT FALSE",
         }
         for column, definition in legacy_task_columns.items():
             await connection.execute(text(
@@ -111,7 +120,7 @@ async def ensure_schema() -> None:
         await connection.execute(text(
             "ALTER TABLE video_tasks ADD CONSTRAINT video_tasks_status_check "
             "CHECK (status IN ('pending', 'planning', 'creative_brief_review', 'shot_plan_review', 'scripting', 'script_review', 'imaging', "
-            "'image_review', 'character_review', 'video_gen', 'video_review', "
+            "'image_review', 'character_review', 'video_gen', 'video_review', 'voice_review', 'editing_blueprint_review', "
             "'compositing', 'composition_review', 'cancellation_requested', 'cancelled', 'done', 'failed'))"
         ))
         await connection.execute(text(

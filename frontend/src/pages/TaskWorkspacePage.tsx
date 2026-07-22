@@ -15,7 +15,7 @@ interface TaskItem {
   product_snapshot?: { name?: string; main_image_asset_id?: string; category?: { name?: string } };
 }
 
-const REVIEW_STATUSES = new Set(["script_review", "image_review", "character_review", "video_review", "composition_review"]);
+const REVIEW_STATUSES = new Set(["script_review", "image_review", "character_review", "video_review", "voice_review", "editing_blueprint_review", "composition_review"]);
 const RUNNING_STATUSES = new Set(["pending", "scripting", "imaging", "video_gen", "compositing", "cancellation_requested"]);
 
 function taskStatusClass(status: string) {

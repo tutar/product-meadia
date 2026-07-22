@@ -14,6 +14,7 @@ from src.models.shot_plan import ShotPlan
 from src.models.editing_blueprint import EditingBlueprint
 from src.models.generated_image import GeneratedImage
 from src.models.video_candidate import VideoCandidate
+from src.models.voiceover_candidate import VoiceoverCandidate
 from src.models.review_feedback import ReviewFeedback
 from src.models.user import User
 from src.models.viral_analysis import ViralAnalysis
@@ -81,15 +82,15 @@ async def _make_runnable_graph(task_type: str, skip_interrupts: set[str] | None 
 
     if task_type == "promo":
         from src.agents.promo_graph import build_promo_graph
-        interrupts = ["wait_creative_brief_review", "wait_script_review", "wait_shot_plan_review", "wait_image_review"]
+        interrupts = ["wait_creative_brief_review", "wait_script_review", "wait_shot_plan_review", "wait_image_review", "wait_voice_review"]
         return build_promo_graph(checkpointer=checkpointer, interrupt_before=[i for i in interrupts if i not in skip])
     elif task_type == "viral":
         from src.agents.viral_graph import build_viral_graph
-        interrupts = ["wait_viral_confirm", "wait_script_review", "wait_image_review"]
+        interrupts = ["wait_viral_confirm", "wait_script_review", "wait_image_review", "wait_voice_review"]
         return build_viral_graph(checkpointer=checkpointer, interrupt_before=[i for i in interrupts if i not in skip])
     elif task_type == "personify":
         from src.agents.personify_graph import build_personify_graph
-        interrupts = ["wait_character_review", "wait_script_review"]
+        interrupts = ["wait_character_review", "wait_script_review", "wait_voice_review"]
         return build_personify_graph(checkpointer=checkpointer, interrupt_before=[i for i in interrupts if i not in skip])
     raise ValueError(f"Unknown task type: {task_type}")
 
@@ -150,6 +151,7 @@ async def _async_run(task_id: str, celery_task_id: str):
                 "hyperframes_html": "", "final_video_path": "", "composition_source_snapshot_id": "",
                 "review_approved": False, "script_approved": False,
                 "images_approved": False, "character_approved": False,
+                "voiceover_approved": False,
                 "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
             }
 
@@ -252,6 +254,12 @@ async def _async_run(task_id: str, celery_task_id: str):
                 initial_state["script_approved"] = True
             if db_images and all(img.status == "approved" for img in db_images):
                 initial_state["images_approved"] = True
+            voiceover = await db.scalar(select(VoiceoverCandidate).where(
+                VoiceoverCandidate.task_id == task.id,
+                VoiceoverCandidate.is_current.is_(True),
+            ))
+            if voiceover and voiceover.status == "approved":
+                initial_state["voiceover_approved"] = True
 
             # Determine starting step
             if task.status == "failed":
@@ -287,6 +295,8 @@ async def _async_run(task_id: str, celery_task_id: str):
             skip.add("wait_image_review")
         if initial_state.get("character_approved"):
             skip.add("wait_character_review")
+        if not task.voiceover_review_enabled or initial_state.get("voiceover_approved"):
+            skip.add("wait_voice_review")
 
         graph = await _make_runnable_graph(task.type, skip)
         config = {"configurable": {"thread_id": task_id}}
@@ -555,6 +565,7 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
             "generate_character": "character",
             "generate_video_clips": "video_clip",
             "generate_clips_and_voiceover": "video_clip",
+            "generate_voiceover": "voiceover",
             "composite_video": "composition",
             "composite": "composition",
         }
@@ -714,18 +725,47 @@ async def _persist_node_output(task_id: str, node_name: str, output: dict):
                     idempotency_key=f"task:{task_id}:tts-audio:{output.get('tts_generation_key', 'initial')}",
                 )
                 output["tts_audio_asset_id"] = str(asset.id)
-                if output.get("lipsync_video_url"):
-                    lipsync = await media.create_from_remote(
-                        owner_user_id=t.user_id, category="lipsync_video",
-                        source_url=output["lipsync_video_url"],
-                        filename=f"{task_id}-lipsync.mp4",
-                        fetch=_fetch_provider_media, task_id=t.id,
-                        source_provider="lipsync-provider",
-                        idempotency_key=f"task:{task_id}:lipsync-video",
-                    )
-                    output["lipsync_video_asset_id"] = str(lipsync.id)
-                t.status = "compositing"
+                all_candidates = (await db.scalars(select(VoiceoverCandidate).where(
+                    VoiceoverCandidate.task_id == task_id,
+                ))).all()
+                current_candidates = [candidate for candidate in all_candidates if candidate.is_current]
+                for candidate in current_candidates:
+                    candidate.is_current = False
+                narration_text = output.get("voiceover_text")
+                if not narration_text:
+                    script = await db.scalar(select(Script).where(Script.task_id == task_id))
+                    narration_text = (script.voiceover_text if script else None) or ""
+                voice_selection = await db.scalar(select(StageModelSelection).where(
+                    StageModelSelection.task_id == task_id,
+                    StageModelSelection.stage == "voice_generation",
+                ))
+                db.add(VoiceoverCandidate(
+                    task_id=t.id,
+                    asset_id=asset.id,
+                    narration_text=narration_text,
+                    duration_seconds=float(output.get("tts_duration_seconds") or 0),
+                    version=max((candidate.version for candidate in all_candidates), default=0) + 1,
+                    status="pending_review",
+                    generation_context={
+                        "tts_generation_key": output.get("tts_generation_key", "initial"),
+                        "model_resolution_snapshot": dict(voice_selection.resolution_snapshot or {}) if voice_selection else {},
+                        "selection_version": voice_selection.selection_version if voice_selection else None,
+                    },
+                ))
+                t.status = "voice_review" if t.voiceover_review_enabled else "compositing"
                 await db.commit()
+
+        elif node_name == "generate_lipsync" and output.get("lipsync_video_url"):
+            t = (await db.execute(select(VideoTask).where(VideoTask.id == task_id))).scalar_one()
+            media = MediaService(db, create_rustfs_storage(settings))
+            lipsync = await media.create_from_remote(
+                owner_user_id=t.user_id, category="lipsync_video",
+                source_url=output["lipsync_video_url"], filename=f"{task_id}-lipsync.mp4",
+                fetch=_fetch_provider_media, task_id=t.id, source_provider="lipsync-provider",
+                idempotency_key=f"task:{task_id}:lipsync-video",
+            )
+            output["lipsync_video_asset_id"] = str(lipsync.id)
+            await db.commit()
 
         elif node_name in ("composite_video", "composite"):
             blueprint = await db.scalar(select(EditingBlueprint).where(EditingBlueprint.task_id == task_id))

@@ -32,7 +32,7 @@ async def test_composition_feedback_falls_back_when_optional_llm_adjustment_is_u
     state = {"review_feedback": [{"target_type": "composition", "content": "Make subtitles lower."}]}
     with patch("src.agents.promo_graph.llm_chat", new_callable=AsyncMock, side_effect=OpenAIError("invalid model")) as llm:
         assert await composition_options(state) == {"clip_duration": 5, "subtitle_offset": 10, "subtitle_size": 32}
-    assert llm.await_args.args[0] == "scriptwriter"
+    llm.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -335,7 +335,7 @@ async def test_editing_blueprint_records_rendered_transition_and_audio_marker():
 
 
 @pytest.mark.asyncio
-async def test_composition_feedback_regenerates_tts_from_clean_voiceover_text():
+async def test_composition_feedback_does_not_regenerate_tts_from_clean_voiceover_text():
     graph = build_promo_graph(interrupt_before=[])
     state = {
         "task_id": "task", "product_id": "product", "task_type": "promo", "image_count": 1,
@@ -355,8 +355,8 @@ async def test_composition_feedback_regenerates_tts_from_clean_voiceover_text():
         events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "composition-feedback"}})]
 
     voiceover = next(event["generate_voiceover"] for event in events if "generate_voiceover" in event)
-    assert tts.await_args.args == ("Clean narration for speech.",)
-    assert voiceover["tts_generation_key"] == "feedback:feedback-1"
+    tts.assert_not_awaited()
+    assert voiceover["tts_audio_url"] == "https://old-audio"
 
 
 @pytest.mark.asyncio
