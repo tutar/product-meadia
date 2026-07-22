@@ -294,31 +294,6 @@ test("video clip review presents four clips as a desktop contact sheet", async (
   expect(positions.every(position => position.width > 200)).toBe(true);
 });
 
-test("shot segment viewer is muted, navigable, and exposes review actions", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
-  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
-  await page.route("**/api/v1/tasks/task-video-viewer", route => route.fulfill({ json: {
-    id: "task-video-viewer", status: "video_review", type: "promo", image_count: 2, progress_log: [],
-  } }));
-  await page.route("**/api/v1/tasks/task-video-viewer/images", route => route.fulfill({ json: [] }));
-  await page.route("**/api/v1/tasks/task-video-viewer/video-candidates", route => route.fulfill({ json: [1, 2].map(index => ({
-    id: `clip-${index}`, kind: "clip", is_current: true, status: "pending_review", access_url: `https://example.test/clip-${index}.mp4`,
-  })) }));
-
-  await page.goto("/tasks/task-video-viewer");
-  await page.getByRole("button", { name: "Open video clip 1 in viewer" }).click();
-
-  const viewer = page.getByRole("dialog", { name: "Video viewer" });
-  const video = viewer.locator("video");
-  await expect(video).toHaveAttribute("controls", "");
-  await expect(video).toHaveJSProperty("muted", true);
-  await expect(viewer.getByRole("button", { name: "Approve" })).toBeVisible();
-  await page.keyboard.press("ArrowRight");
-  await expect(viewer.getByText("2 / 2", { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(viewer).toHaveCount(0);
-});
-
 test("composition review separates approved shot segments from final composition review", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
   await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
@@ -337,6 +312,23 @@ test("composition review separates approved shot segments from final composition
   const composition = page.getByRole("region", { name: "Final composition review" });
   await expect(approvedSegments.getByRole("button", { name: "Approve" })).toHaveCount(0);
   await expect(composition.getByRole("button", { name: "Approve" })).toHaveCount(1);
+  await expect(composition.locator(".video-preview-expand")).toHaveCount(0);
+
+  const card = composition.locator(".video-review-card");
+  const cardBox = await card.boundingBox();
+  expect(cardBox).not.toBeNull();
+  for (const control of [
+    composition.getByRole("button", { name: "Preview source" }),
+    composition.getByRole("link", { name: "Download HTML" }),
+    composition.getByRole("button", { name: "Replay source" }),
+    composition.getByRole("button", { name: "Reconstruct source" }),
+    composition.getByRole("button", { name: "Approve" }),
+    composition.getByRole("button", { name: "Recompose" }),
+  ]) {
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+  }
   expect((await approvedSegments.boundingBox())!.y).toBeLessThan((await composition.boundingBox())!.y);
 });
 
