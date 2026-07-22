@@ -116,9 +116,13 @@ class LiteLLMClient:
                 params["api_base"] = api_base
             created = await litellm.avideo_generation(**params)
             while True:
-                status = await litellm.avideo_status(video_id=created.id)
+                status = await litellm.avideo_status(
+                    video_id=created.id, api_base=api_base, api_key=credential,
+                )
                 if status.status == "completed":
-                    return await litellm.avideo_content(video_id=created.id)
+                    return await litellm.avideo_content(
+                        video_id=created.id, api_base=api_base, api_key=credential,
+                    )
                 if status.status == "failed":
                     raise RuntimeError("Video provider reported failure")
                 await asyncio.sleep(10)

@@ -137,7 +137,7 @@ async def test_approved_script_generates_shot_plan_before_images():
         "review_feedback": [], "video_feedback_by_sort_order": {}, "messages": [],
     }
     with patch("src.agents.promo_graph.llm_chat", new_callable=AsyncMock) as llm:
-        llm.return_value = '{"shots": [{"image_prompt": "planned image", "video_motion_prompt": "planned movement"}]}'
+        llm.return_value = '```json\n{"shots": [{"image_prompt": "planned image", "video_motion_prompt": "planned movement"}]}\n```'
         events = [event async for event in graph.astream(state, {"configurable": {"thread_id": "shot-plan"}})]
     assert "generate_shot_plan" in [next(iter(event)) for event in events if event]
     assert llm.await_args.args[0] == "scriptwriter"

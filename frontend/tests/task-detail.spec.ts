@@ -102,6 +102,37 @@ test("completed stage opens generation materials with the latest record", async 
   await expect(materials.getByText("asset-brief-1")).toBeVisible();
 });
 
+test("execution-stage materials stay scoped to the clicked attempt", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("access_token", "test"));
+  await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));
+  await page.route("**/api/v1/tasks/task-attempt-materials", route => route.fulfill({ json: {
+    id: "task-attempt-materials", status: "image_review", type: "promo", image_count: 1,
+    progress_log: [
+      { attempt: 4, stage: "imaging", step: "generate_images", status: "completed" },
+      { attempt: 5, stage: "imaging", step: "generate_images", status: "completed" },
+    ],
+  } }));
+  await page.route("**/api/v1/tasks/task-attempt-materials/creative-brief", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-attempt-materials/script", route => route.fulfill({ status: 404 }));
+  await page.route("**/api/v1/tasks/task-attempt-materials/images", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-attempt-materials/video-candidates", route => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/tasks/task-attempt-materials/generation-records**", route => {
+    const attempt = new URL(route.request().url()).searchParams.get("attempt");
+    expect(attempt).toBe("4");
+    return route.fulfill({ json: [{ id: "record-4", task_id: "task-attempt-materials", stage: "imaging", substep: "generate_images", attempt: 4, provider: "openai", model: "agnes-image", parameters: {}, normalized_input: {}, normalized_output: { marker: "attempt-4" }, provider_payload: {}, media_asset_ids: [], provenance: {}, training_candidate: "pending_review", created_at: "2026-07-22T04:00:00Z" }] });
+  });
+
+  await page.goto("/tasks/task-attempt-materials");
+  const log = page.getByRole("region", { name: "Execution Log" });
+  await log.getByRole("button", { name: "Attempt 4" }).click();
+  await log.getByRole("button", { name: /generate images|生成图片/i }).click();
+
+  const materials = page.getByRole("dialog", { name: "Generation materials" });
+  await expect(materials).toBeVisible();
+  await expect(materials.getByText("attempt-4")).toBeVisible();
+  await expect(materials.getByText("attempt-5")).toHaveCount(0);
+});
+
 test("generation materials show the frozen model selection provenance", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("access_token", "test"));
   await page.route("**/api/v1/auth/me", route => route.fulfill({ json: { id: "u", email: "u@test", role: "customer" } }));

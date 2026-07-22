@@ -279,6 +279,7 @@ async def update_stage_model_selection(
 async def list_generation_records(
     task_id: UUID,
     stage: str | None = None,
+    attempt: int | None = None,
     db: AsyncSession = Depends(get_async_session),
     user: User = Depends(get_current_user),
 ):
@@ -286,6 +287,8 @@ async def list_generation_records(
     query = select(GenerationRecord).where(GenerationRecord.task_id == task_id)
     if stage:
         query = query.where(GenerationRecord.stage == stage)
+    if attempt is not None:
+        query = query.where(GenerationRecord.attempt == attempt)
     records = (await db.scalars(query.order_by(GenerationRecord.attempt.desc(), GenerationRecord.created_at.desc(), GenerationRecord.id.desc()))).all()
     for record in records:
         record.provider_payload = sanitized_provider_payload(record.provider_payload)

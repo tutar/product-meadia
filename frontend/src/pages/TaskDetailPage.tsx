@@ -295,9 +295,11 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
     await runAction("editing-blueprint", async () => { await api.put(`/tasks/${id}/editing-blueprint/recompose`, { entries }); await fetchData(); });
   };
 
-  const openGenerationMaterials = async (stage: string) => {
+  const openGenerationMaterials = async (stage: string, attempt?: number) => {
     if (!id) return;
-    const records = await api.get(`/tasks/${id}/generation-records`, { params: { stage } }).then(response => response.data).catch(() => []);
+    const params: { stage: string; attempt?: number } = { stage };
+    if (attempt !== undefined) params.attempt = attempt;
+    const records = await api.get(`/tasks/${id}/generation-records`, { params }).then(response => response.data).catch(() => []);
     setGenerationStage(stage);
     setGenerationRecords(records);
     setSelectedGenerationRecord(records[0] || null);
@@ -423,7 +425,7 @@ export default function TaskDetailPage({ taskId, onTaskLoaded }: TaskDetailPageP
                 const stageDefault = false;
                 const stageOpen = expanded[stageKey] ?? stageDefault;
                 return <div key={stageKey} style={{ margin: "8px 0 0 14px", borderLeft: "2px solid var(--border)", paddingLeft: 10 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { toggle(stageKey, stageDefault); void openGenerationMaterials(stage); }} aria-expanded={stageOpen}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { toggle(stageKey, stageDefault); void openGenerationMaterials(stage, attempt); }} aria-expanded={stageOpen}>
                     {stageOpen ? "▾" : "▸"} {t(`execution.stages.${stage}`, stage.replace(/_/g, " "))}
                   </button>
                   {stageOpen && entries.map((entry, i) => <div key={`${entry.step}:${i}`} style={{ display: "flex", gap: 12, padding: "8px 0", fontSize: "0.82rem" }}>

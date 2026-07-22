@@ -1,4 +1,6 @@
 import pytest
+import sys
+from types import SimpleNamespace
 
 from src.models.model_configuration import ModelConfiguration, ProviderModelCatalog, StageModelSelection
 from src.models.task import VideoTask
@@ -11,6 +13,36 @@ def test_litellm_client_does_not_duplicate_an_explicit_provider_prefix():
 
     assert LiteLLMClient._model_name("openai", "agnes-image-2.1-flash") == "openai/agnes-image-2.1-flash"
     assert LiteLLMClient._model_name("openai", "openai/agnes-image-2.1-flash") == "openai/agnes-image-2.1-flash"
+
+
+@pytest.mark.asyncio
+async def test_litellm_video_polling_reuses_private_endpoint_and_credential(monkeypatch):
+    from src.services.model_invocation import LiteLLMClient
+
+    calls = {}
+
+    async def generate(**_kwargs):
+        return SimpleNamespace(id="video-1")
+
+    async def status(**kwargs):
+        calls["status"] = kwargs
+        return SimpleNamespace(status="completed")
+
+    async def content(**kwargs):
+        calls["content"] = kwargs
+        return b"video-bytes"
+
+    monkeypatch.setitem(sys.modules, "litellm", SimpleNamespace(
+        avideo_generation=generate, avideo_status=status, avideo_content=content,
+    ))
+    result = await LiteLLMClient().video(
+        provider="openai", model_id="private-video", credential="secret", prompt="orbit",
+        seconds=5, image_urls=[], api_base="https://video.example/v1",
+    )
+
+    assert result == b"video-bytes"
+    assert calls["status"]["api_base"] == calls["content"]["api_base"] == "https://video.example/v1"
+    assert calls["status"]["api_key"] == calls["content"]["api_key"] == "secret"
 
 
 @pytest.mark.asyncio

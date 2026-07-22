@@ -68,9 +68,10 @@ async def generate_video(
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as file:
             file.write(resolved.content)
             path = file.name
-        model = resolved.model_resolution_snapshot["model_id"]
+        snapshot = resolved.model_resolution_snapshot
+        model = snapshot["model_id"]
         await record_generation(
-            resolved.model_resolution_snapshot["provider"], model,
+            snapshot.get("provider") or snapshot["adapter"], model,
             {"width": 1152, "height": 768, "num_frames": 121, "frame_rate": 24},
             {"prompt": prompt, "keyframe_count": len(image_urls or [])}, {"result": "video generated"},
             {"model": model, "prompt": prompt, "keyframe_count": len(image_urls or [])},

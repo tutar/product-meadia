@@ -34,7 +34,8 @@ async def transcribe_audio(video_url: str, *, task_id: str | None = None) -> str
             from uuid import UUID
             async with AsyncSessionLocal() as db:
                 resolved = await ModelInvocationBoundary().transcribe(db, UUID(task_id), Path(tmp_path))
-            provider, model, transcript = resolved.model_resolution_snapshot["provider"], resolved.model_resolution_snapshot["model_id"], resolved.content
+            snapshot = resolved.model_resolution_snapshot
+            provider, model, transcript = snapshot.get("provider") or snapshot["adapter"], snapshot["model_id"], resolved.content
         else:
             with open(tmp_path, "rb") as audio_file:
                 result = await client.audio.transcriptions.create(model="sensevoice", file=audio_file)

@@ -12,6 +12,15 @@ from src.services.model_invocation import ModelInvocationBoundary
 client = AsyncOpenAI(base_url=settings.litellm_base_url, api_key=settings.litellm_api_key)
 
 
+def parse_json_response(content: str) -> dict:
+    """Parse a JSON object returned by a model, accepting a Markdown fence."""
+    text = content.strip()
+    if text.startswith("```"):
+        _, _, text = text.partition("\n")
+        text = text.rsplit("```", 1)[0].strip()
+    return json.loads(text)
+
+
 @retry_async(max_attempts=3)
 @observe(name="llm_chat")
 async def llm_chat(
@@ -48,5 +57,4 @@ async def analyze_video_structure(transcript: str, *, task_id: str | None = None
 
 Return ONLY valid JSON, no markdown wrapping."""
     text = await llm_chat("researcher", system, transcript, temperature=0.2, task_id=task_id, model_stage="viral_analysis" if task_id else None)
-    text = text.strip().removeprefix("```json").removesuffix("```").strip()
-    return json.loads(text)
+    return parse_json_response(text)

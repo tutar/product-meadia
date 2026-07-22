@@ -1,4 +1,6 @@
 import pytest
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch, MagicMock
 from src.tools.image_gen import generate_image
 
@@ -35,6 +37,29 @@ async def test_generate_image_with_ref_image():
         url = await generate_image("Variant of the scene", ref_image_url=reference)
         assert url == "https://rustfs:8001/images/test2.png"
         assert mock_gen.call_args.kwargs["extra_body"] == {"image": [reference]}
+
+
+@pytest.mark.asyncio
+async def test_task_scoped_image_records_an_adapter_snapshot():
+    @asynccontextmanager
+    async def session():
+        yield object()
+
+    class Boundary:
+        async def generate_image(self, *_args, **_kwargs):
+            return SimpleNamespace(
+                content="https://example.test/keyframe.png",
+                model_resolution_snapshot={"adapter": "openai", "model_id": "private-image-v1"},
+            )
+
+    recorder = AsyncMock()
+    with patch("src.tools.image_gen.AsyncSessionLocal", lambda: session()), \
+         patch("src.tools.image_gen.ModelInvocationBoundary", Boundary), \
+         patch("src.tools.image_gen.record_generation", recorder):
+        result = await generate_image("A cinematic product image", task_id="00000000-0000-0000-0000-000000000001")
+
+    assert result == "https://example.test/keyframe.png"
+    assert recorder.await_args.args[:2] == ("openai", "private-image-v1")
 
 
 @pytest.mark.asyncio

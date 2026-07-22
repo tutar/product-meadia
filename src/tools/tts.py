@@ -77,7 +77,8 @@ async def generate_tts(text: str, *, target_duration_seconds: float | None = Non
         async with AsyncSessionLocal() as db:
             resolved = await ModelInvocationBoundary().generate_speech(db, UUID(task_id), text)
         audio = resolved.content
-        provider, model = resolved.model_resolution_snapshot["provider"], resolved.model_resolution_snapshot["model_id"]
+        snapshot = resolved.model_resolution_snapshot
+        provider, model = snapshot.get("provider") or snapshot["adapter"], snapshot["model_id"]
     else:
         response = await client.audio.speech.create(model="voxcpm2", input=text, voice="default")
         audio = response.content

@@ -1,12 +1,13 @@
 import json
 import math
+import asyncio
 from langgraph.graph import StateGraph, END
 from src.agents.state import VideoAgentState
 from src.tools.image_gen import generate_image
 from src.tools.video_gen import SELECTED_VIDEO_MODEL, generate_video
 from src.tools.tts import generate_tts
 from src.tools.render import render_hyperframes
-from src.tools.llm_tools import llm_chat
+from src.tools.llm_tools import llm_chat, parse_json_response
 from src.tasks.execution import tracked_node
 from src.services.product_context import format_product_context
 
@@ -106,7 +107,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("creative_brief"):
             return {}
         result = await llm_chat("scriptwriter", CREATIVE_BRIEF_SYSTEM, format_product_context(state["product_info"]) + review_guidance(state, "creative_brief"), temperature=0.4, task_id=state.get("task_id"), model_stage="creative_planning")
-        return {"creative_brief": json.loads(result)}
+        return {"creative_brief": parse_json_response(result)}
 
     async def wait_creative_brief_review(state: VideoAgentState) -> dict:
         if "creative_brief" not in state:
@@ -123,7 +124,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         prompt = format_product_context(info) + "\nCreative Brief: " + json.dumps(state.get("creative_brief", {})) + review_guidance(state, "script")
         system = SCRIPT_SYSTEM.format(image_count=state["image_count"])
         result = await llm_chat("scriptwriter", system, prompt, temperature=0.7, task_id=state.get("task_id"), model_stage="scriptwriting")
-        data = json.loads(result)
+        data = parse_json_response(result)
         return {
             "script_content": data["script"],
             "voiceover_text": data["voiceover"],
@@ -143,7 +144,7 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
         if state.get("shot_plan"):
             return {}
         result = await llm_chat("scriptwriter", SHOT_PLAN_SYSTEM, json.dumps({"script": state["script_content"], "voiceover": state["voiceover_text"], "creative_brief": state.get("creative_brief", {})}) + review_guidance(state, "shot_plan"), temperature=0.4, task_id=state.get("task_id"), model_stage="creative_planning")
-        return {"shot_plan": json.loads(result).get("shots", [])}
+        return {"shot_plan": parse_json_response(result).get("shots", [])}
 
     async def wait_shot_plan_review(state: VideoAgentState) -> dict:
         if "shot_plan" not in state:
@@ -169,19 +170,24 @@ def build_promo_graph(checkpointer=None, interrupt_before=None) -> StateGraph:
             for keyframe in keyframes
         ] or state.get("image_prompts", [])
         existing = state.get("generated_images", [])
-        images = []
-        for i, p in enumerate(prompts):
+        task_slots = asyncio.Semaphore(8)
+
+        async def generate_one(i: int, p: str):
             # Reuse existing approved/pending images on retry
             old = existing[i] if i < len(existing) else None
             if old and old.get("image_url") and old.get("status") in ("approved", "pending_review"):
-                images.append(old)
-            else:
-                url = await generate_image(
-                    p + review_guidance(state, "image", old.get("id") if old else None),
-                    ref_image_url=state.get("main_image_data_uri") or None,
-                    task_id=state.get("task_id"),
-                )
-                images.append({"sort_order": i, "image_url": url, "status": "pending_review", **(keyframes[i] if i < len(keyframes) else {})})
+                return old
+            try:
+                async with task_slots:
+                    url = await generate_image(p + review_guidance(state, "image", old.get("id") if old else None), ref_image_url=state.get("main_image_data_uri") or None, task_id=state.get("task_id"))
+                return {"sort_order": i, "image_url": url, "status": "pending_review", **(keyframes[i] if i < len(keyframes) else {})}
+            except Exception as exc:
+                return {"sort_order": i, "status": "error", "error": str(exc), **(keyframes[i] if i < len(keyframes) else {})}
+
+        results = await asyncio.gather(*(generate_one(i, p) for i, p in enumerate(prompts)))
+        images = list(results)
+        if any(image.get("status") == "error" for image in images):
+            raise RuntimeError("one or more image generations failed")
         return {"generated_images": images, "clip_segments": segments}
 
     async def generate_video_clips(state: VideoAgentState) -> dict:
